@@ -594,6 +594,7 @@ const RANDOM_TELLS = [
 function cleanStudent() {
   const name = randName(), no = randStuNo();
   return {
+    pname: name,
     voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
     hello: pick(['老师好。', '作业写完了，老师。', '老师，交作业。']),
     thanks: pick(['谢谢老师！', '耶！']),
@@ -606,6 +607,7 @@ function cleanStudent() {
 function otherClassStudent(fixedHello, fixedCls) {
   const cls = fixedCls || pick(OTHER_CLASSES), name = randName();
   return {
+    pname: name,
     voice: 115 + rint(-15, 30), photoSeed: rint(1, 9999),
     hello: fixedHello || pick(['老师，我们班作业交这儿吗？', '老师好，交作业。']),
     thanks: '……好吧。',
@@ -644,6 +646,7 @@ function dateIssueStudent() {
 function printedStudent() {
   const name = randName(), no = randStuNo();
   return {
+    pname: name,
     voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
     hello: '老师，这次我用新方法写的。', thanks: '……重写就重写。',
     docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, printed: true }) }],
@@ -656,6 +659,7 @@ function printedStudent() {
 function copyStudent() {
   const name = randName(), no = randStuNo();
   return {
+    pname: name,
     voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
     hello: '老师，我和同桌错得一样很正常吧？', thanks: '……',
     docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no }) }],
@@ -668,6 +672,7 @@ function copyStudent() {
 function oldHwStudent() {
   const name = randName(), no = randStuNo();
   return {
+    pname: name,
     voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
     hello: '老师，补交的，上周忘带了。', thanks: '……哦。',
     docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, date: '2026.10.12' }) }],
@@ -680,6 +685,7 @@ function oldHwStudent() {
 function forgedSignStudent() {
   const name = randName(), no = randStuNo();
   return {
+    pname: name,
     voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
     hello: '老师，签字在这儿。', thanks: '……被看出来了？',
     docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, forged: true }) }],
@@ -756,6 +762,7 @@ function noteStudent() {
 function aiStudent() {
   const name = randName(), no = randStuNo();
   return {
+    pname: name,
     voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
     hello: '老师，我的作业全是 AI 写的，全对。', thanks: '……AI 也会错吗？',
     docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, printed: true, ex: makeEx(0) }) }],
@@ -770,6 +777,7 @@ function aiStudent() {
 function sloppyStudent() {
   const name = randName(), no = randStuNo();
   return {
+    pname: name,
     voice: 105 + rint(-10, 30), photoSeed: rint(1, 9999),
     hello: '老师，作业写完了……', thanks: '……哦。',
     docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, ex: makeEx(3) }) }],
@@ -1440,7 +1448,11 @@ function drawBoothBg() {
   drawBtn(INSPECT_BTN, B.insp.on ? '退出' : '?检查', B.insp.on);
   if (S.day >= 4) drawBtn(DRAWER_BTN, '搜课桌', B.drawer && B.drawer.on);
   // 班规书图标（合上时）
-  if (B.ruleInst && !B.ruleInst.big) smallIcon('book', C.BOOK, 502, 316);
+  if (B.ruleInst && !B.ruleInst.big) {
+    smallIcon('book', C.BOOK, 502, 316);
+    const ln2 = Object.keys(S.laws || {}).length;
+    if (ln2) { rect(516, 306, 524, 314, K.RED); txt(520, 305, String(ln2), 8, K.WHITE, 'ma'); }
+  }
   else smallIcon('book', C.BOOK, BOOK_BOX[0] + 3, BOOK_BOX[1] + 12);
   // 时钟与钱
   txt(560, 118, `${todayStr()} ${WEEKDAYS[S.day]}`, 8, K.GREY, 'ra');
@@ -1512,7 +1524,7 @@ function drawDocs() {
 function drawLines() {
   const boxes = lineBoxes();
   boxes.forEach(({ ln, size, box }) => {
-    const who = ln.who === 'C' ? '王老师' : '学生';
+    const who = ln.who === 'C' ? '王老师' : ((ln.ent && ln.ent.spec.pname) || '学生');
     txt(30, box[1], who + '：', size, ln.who === 'C' ? K.CLAUDE_L : K.GREY);
     txt(30 + tw(who + '：', size) + 2, box[1], ln.text, size, ln.who === 'C' ? K.WHITE : K.PAPER);
   });
@@ -1681,6 +1693,7 @@ function drawSummary(t) {
     ['检查份数', `${B.total} 份`],
     ['批改正确', `${B.correct} 份`],
     ['批改全对', `${B.gradeOk || 0} 本`],
+    ['立法进度', `${Object.keys(S.laws || {}).length}/6 条`],
     ['误判单', `${B.total - B.correct} 张`],
     ['涌现企图', `${B.total - B.correct} 起`],
     ['当日绩效', `${B.pay} 分`],
@@ -1706,6 +1719,8 @@ function drawEnd(t) {
   txt(320, 208, grade, 10, K.GREY, 'ma');
   const score = S.cites === 0 ? '月考数学平均分 92 · 年级第一' : S.cites <= 3 ? '月考数学平均分 84 · 稳中有升' : '月考数学平均分 71 · 有学生原形毕露';
   txt(320, 232, score, 10, K.PAPER, 'ma');
+  const lawsN = Object.keys(S.laws || {}).length;
+  if (S.cites === 0 && lawsN >= 6) txt(320, 116, '★ 金结局 · 涌现大师：六法立齐，零误判 ★', 11, K.GOLD, 'ma');
   const audit = S.cites === 0 ? '涌现审计：反涌现标兵' : S.cites <= 3 ? '涌现审计：合格班主任' : '涌现审计：涌现重灾区';
   const attempts = Math.max(0, S.total - S.correct);
   txt(320, 254, audit + ' · 本周涌现企图 ' + attempts + ' 起', 10, K.CLAUDE_L, 'ma');
