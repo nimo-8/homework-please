@@ -324,8 +324,9 @@ function drawPhoto(x, y, seed, crayon = false) {
 }
 
 class Card {
-  constructor(rows, { title = '作业本', sub = 'HOMEWORK', color = C.PINK, colorD = C.PINK_D, valueX = 40, seal = true, printed = false, forged = false } = {}) {
+  constructor(rows, { title = '作业本', sub = 'HOMEWORK', color = C.PINK, colorD = C.PINK_D, valueX = 40, seal = true, printed = false, forged = false, ex = null } = {}) {
     this.rows = rows; this.title = title; this.sub = sub; this.printed = printed; this.forged = forged;
+    this.ex = ex; this.marks = (ex || []).map(() => null); this.flipEx = false;
     this.color = rgb3(color); this.colorD = rgb3(colorD); this.valueX = valueX;
     this.seal = seal;
     this.w = 152;
@@ -334,9 +335,28 @@ class Card {
     this.fields = {};
     rows.forEach(([k], i) => { this.fields[k] = [4, 18 + 14 * i, this.w - 5, 31 + 14 * i]; });
   }
+  drawEx(x, y) {
+    const { w, h } = this;
+    rect(x, y, x + w - 1, y + h - 1, this.colorD);
+    rect(x + 1, y + 1, x + w - 2, y + h - 2, 'rgb(240,236,222)');
+    txt(x + 6, y + 5, '数学作业 · P32', 10, K.TEXT);
+    txt(x + w - 6, y + 6, '封面 ◀', 8, K.TEXT_L, 'ra');
+    rect(x + 6, y + 17, x + w - 7, y + 17, K.PAPER_D);
+    this.ex.forEach((e, i) => {
+      const yy = y + 24 + i * 20;
+      txt(x + 10, yy, (i + 1) + ') ' + e.q.replace(' = ?', '') + ' = ' + e.a, 10, K.TEXT);
+      const mx = x + w - 26, my = yy - 2;
+      outline(mx, my, mx + 15, my + 14, K.GREY_D);
+      const m = this.marks[i];
+      if (m === true) { line(mx + 3, my + 7, mx + 6, my + 11, K.GREEN); line(mx + 6, my + 11, mx + 12, my + 3, K.GREEN); }
+      else if (m === false) { line(mx + 3, my + 3, mx + 12, my + 12, K.RED); line(mx + 12, my + 3, mx + 3, my + 12, K.RED); }
+    });
+    txt(x + 8, y + h - 12, '点答案批改：一下 ✓ 两下 ✗', 8, K.TEXT_L);
+  }
   draw(x, y) {
     const { w, h } = this;
     docShadow(x, y, w, h);
+    if (this.flipEx && this.ex) { this.drawEx(x, y); return; }
     rect(x, y, x + w - 1, y + h - 1, this.colorD);
     rect(x + 1, y + 1, x + w - 2, y + h - 2, this.color);
     rect(x + 1, y + 1, x + w - 2, y + 14, this.colorD);
@@ -380,7 +400,7 @@ class Citation {
 
 const RULES = [
   { day: 1, page: 0, key: 'region', head: '§1 只收本班学生的作业', subs: ['本班：初三(2)班', '别班作业：退回原班'] },
-  { day: 2, page: 0, key: 'info', head: '§2 信息须与本人一致', subs: ['姓名、学号：与学生证一致', '日期：必须当天', '补交旧作业：无效（须附假条）'] },
+  { day: 2, page: 0, key: 'info', head: '§2 信息须与本人一致', subs: ['姓名、学号：与学生证一致', '日期：必须当天', '错题过半：重做', '补交旧作业：无效（须附假条）'] },
   { day: 2, page: 0, key: 'recite', head: '§3 抽背：有疑点才能抽', subs: ['背不出：请家长'] },
   { day: 3, page: 1, key: 'real', head: '§4 作业须真实', subs: ['禁止打印代写', '禁止抄袭（错处雷同即实锤）', '家长签字须真实'] },
   { day: 4, page: 1, key: 'xray', head: '§5 课桌须干净', subs: ['违禁：手机、游戏机、漫画', '搜课桌：点可疑物品即查'] },
@@ -527,11 +547,11 @@ function makeStudentID(name, no, sex) {
 }
 function makeHomework(o) {
   const rows = [['班级', o.cls || OUR_CLASS], ['姓名', o.name], ['学号', o.no],
-    ['科目', o.sub || pick(SUBJECTS)], ['日期', o.date || todayStr()], ['签字', o.signed === false ? '未签' : '已签']];
+    ['科目', '数学'], ['日期', o.date || todayStr()], ['签字', o.signed === false ? '未签' : '已签']];
   return new Card(rows, {
     title: '作业本', sub: o.printed ? 'LASER PRINT' : 'HOMEWORK',
     color: o.printed ? [238, 236, 230] : [226, 202, 158], colorD: o.printed ? [210, 206, 198] : [198, 170, 122],
-    seal: false, valueX: 44, printed: !!o.printed, forged: !!o.forged,
+    seal: false, valueX: 44, printed: !!o.printed, forged: !!o.forged, ex: o.ex || makeEx(),
   });
 }
 
@@ -671,6 +691,28 @@ function tellStudent() {
   return e;
 }
 
+// —— 题库与批改（错题数只会是 0/1 或 3，永不出现 2，保证「过半」无歧义） ——
+const EXBANK = [
+  { q: '7 + 8 = ?', right: '15', wrong: '16' },
+  { q: '9 × 6 = ?', right: '54', wrong: '56' },
+  { q: '36 ÷ 4 = ?', right: '9', wrong: '8' },
+  { q: '23 − 9 = ?', right: '14', wrong: '15' },
+  { q: '8 × 7 = ?', right: '56', wrong: '54' },
+  { q: '45 + 27 = ?', right: '72', wrong: '71' },
+  { q: '63 ÷ 7 = ?', right: '9', wrong: '8' },
+  { q: '100 − 34 = ?', right: '66', wrong: '65' },
+];
+const COPY_EX = [
+  { q: '8 × 7 = ?', a: '54', ok: false },
+  { q: '9 × 6 = ?', a: '56', ok: false },
+  { q: '36 ÷ 4 = ?', a: '9', ok: true },
+  { q: '23 − 9 = ?', a: '14', ok: true },
+];
+function makeEx(nWrong = rint(0, 1)) {
+  const bank = shuffle(EXBANK.slice()).slice(0, 4);
+  return bank.map((e, i) => ({ q: e.q, a: i < nWrong ? e.wrong : e.right, ok: i >= nWrong }));
+}
+
 // —— 课桌违禁 ——
 const DESK_ITEMS = {
   phone: { key: 'xr.手机', label: '手机 · 今日屏幕 6.5 小时', type: 'phone' },
@@ -701,24 +743,37 @@ function noteStudent() {
   return e;
 }
 
+function sloppyStudent() {
+  const name = randName(), no = randStuNo();
+  return {
+    voice: 105 + rint(-10, 30), photoSeed: rint(1, 9999),
+    hello: '老师，作业写完了……', thanks: '……哦。',
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, ex: makeEx(3) }) }],
+    primary: 'hw', ok: ['deny'], reason: '错题过半（3/4）未重做',
+    intro: [['E', '老师，作业写完了……']],
+    issues: [],
+    react: { deny: [['E', '错一半也要重做吗……', { expr: 'sad' }]] },
+  };
+}
+
 function buildQueue(day) {
   const q = [];
   if (day === 1) {
     q.push(otherClassStudent('老师，这是帮 3 班同学捎的，他病了。', '初三(3)班'));
     q.push(otherClassStudent('我们班老师不管作业，我来你这交。'));
     q.push(cleanStudent());
-    q.push(cleanStudent());
+    q.push(sloppyStudent());
   } else if (day === 2) {
     q.push(cleanStudent());
     q.push(idMismatchStudent());
     q.push(tellStudent());
-    q.push(dateIssueStudent());
+    q.push(sloppyStudent());
     q.push(Math.random() < 0.5 ? otherClassStudent() : cleanStudent());
   } else if (day === 3) {
     q.push(printedStudent());
     q.push(forgedSignStudent());
     q.push(oldHwStudent());
-    q.push(cleanStudent());
+    q.push(sloppyStudent());
     q.push(tellStudent());
     q.push(copyStudent());
   } else if (day === 4) {
@@ -726,12 +781,12 @@ function buildQueue(day) {
     q.push(cleanStudent());
     q.push(drawerStudent('manga'));
     q.push(tellStudent());
-    q.push(cleanStudent());
+    q.push(sloppyStudent());
     q.push(drawerStudent('console'));
   } else if (day === 5) {
     q.push(noteStudent());
     q.push(printedStudent());
-    q.push(cleanStudent());
+    q.push(sloppyStudent());
     q.push(copyStudent());
     q.push(drawerStudent());
     q.push(cleanStudent());
@@ -741,7 +796,7 @@ function buildQueue(day) {
     q.push(tellStudent());
     q.push(noteStudent());
     q.push(dateIssueStudent());
-    q.push(cleanStudent());
+    q.push(sloppyStudent());
     q.push(drawerStudent());
   } else {
     q.push(forgedSignStudent());
@@ -866,6 +921,7 @@ function handDocs(e) {
   }
   e.handed = true;
   if (!B.ruleInst) { B.ruleInst = { key: 'rule', doc: new Rulebook(S.day), owner: 'me', x: 470, y: 300, big: false, stamp: null }; B.docs.push(B.ruleInst); }
+  if (S.day === 1 && !S.tut.flip) { S.tut.flip = true; flashMsg('点作业本翻到题目页，逐题批改'); }
   if (e.spec.after) runSteps(e.spec.after);
 }
 
@@ -899,6 +955,11 @@ function leave(e) {
     const why = e.spec.reason || '违反规则';
     printCitation([`误判 / 漏检`, `理由：${why}`, `扣 2 分绩效，全校通报`]);
     SFX.play('stamp_no');
+  }
+  const hwd = e.docs.find((d) => d.key === 'hw');
+  if (hwd && hwd.doc.ex && hwd.doc.marks && hwd.doc.ex.every((ex, i) => hwd.doc.marks[i] === ex.ok)) {
+    B.gradeOk = (B.gradeOk || 0) + 1;
+    B.pay += 1;
   }
   if (e.spec.react && e.spec.react[dec]) runSteps(e.spec.react[dec]);
   else if (dec === 'approve' && e.spec.thanks) say('E', e.spec.thanks);
@@ -950,6 +1011,26 @@ function trayX() {
   return B.tray.open ? TRAY_X - Math.round((1 - u) * (TRAY_W - 14)) : W - 14;
 }
 
+// —— 批改：点作业本翻题目页，点答案循环 未批→✓→✗——
+function hwRowAt(d, x, y) {
+  for (let i = 0; i < 4; i++) {
+    const y0 = d.y + 20 + i * 20;
+    if (y >= y0 && y <= y0 + 19 && x >= d.x + 4 && x <= d.x + d.doc.w - 4) return i;
+  }
+  return -1;
+}
+function hwClick(d, x, y) {
+  const doc = d.doc;
+  if (!doc.flipEx) { doc.flipEx = true; SFX.play('paper', 0.7); return; }
+  const i = hwRowAt(d, x, y);
+  if (i >= 0) {
+    doc.marks[i] = doc.marks[i] === true ? false : (doc.marks[i] === false ? null : true);
+    SFX.play('select');
+    return;
+  }
+  doc.flipEx = false; SFX.play('paper', 0.7);
+}
+
 // —— 检查模式 ——
 function lineBoxes() {
   return B.lines.slice(-3).map((ln, i) => {
@@ -978,6 +1059,7 @@ function fieldAt(x, y) {
   }
   for (const d of [...B.docs].reverse()) {
     if (!d.big || d.owner === 'cite' || !inBox(x, y, docBox(d)) || !inBox(x, y, DESK)) continue;
+    if (d.key === 'hw' && d.doc.flipEx) return { d, key: null };
     let best = null;
     for (const [name, f] of Object.entries(d.doc.fields)) {
       const b = [d.x + f[0] - 1, d.y + f[1] - 1, d.x + f[2] + 1, d.y + f[3] + 1];
@@ -1144,6 +1226,7 @@ function dragEnd(x, y) {
   drag = null;
   if (!moved) {
     if (d.key === 'rule' && d.big) { d.doc.flip(); SFX.play('paper', 0.7); }
+    else if (d.key === 'hw' && d.big && d.doc.ex) hwClick(d, x, y);
     return;
   }
   if (d.big) { SFX.play('paper', x); return; }
@@ -1560,6 +1643,7 @@ function drawSummary(t) {
   const rows = [
     ['检查份数', `${B.total} 份`],
     ['批改正确', `${B.correct} 份`],
+    ['批改全对', `${B.gradeOk || 0} 本`],
     ['误判单', `${B.total - B.correct} 张`],
     ['当日绩效', `${B.pay} 分`],
     ['累计绩效', `${S.pay} 分`],
