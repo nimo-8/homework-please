@@ -879,13 +879,13 @@ function buildQueue(day) {
 
 // ══════════════ 7. 全局状态 ══════════════
 let canvasEl, F, now = 0;
-const S = { day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {}, laws: {}, inv: {}, charm: 0, shopOffers: null, bought: [] };
+const S = { day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {}, laws: {}, inv: {}, charm: 0, shopOffers: null, bought: [], gradeWrong: 0, fired: false };
 let B = null;
 const ptr = { x: 320, y: 180, mouse: false, down: false };
 let drag = null;
 let scene = 'boot', sceneT0 = 0;
 const st = () => now - sceneT0;
-function saveGame() { try { localStorage.setItem('ipc_save', JSON.stringify({ day: S.day, pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0 })); } catch (e) {} }
+function saveGame() { try { localStorage.setItem('ipc_save', JSON.stringify({ day: S.day, pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0, gradeWrong: S.gradeWrong || 0, fired: S.fired || false })); } catch (e) {} }
 function loadGame() { try { const d = JSON.parse(localStorage.getItem('ipc_save')); if (d && d.day) Object.assign(S, d); } catch (e) {} }
 function clearSave() { try { localStorage.removeItem('ipc_save'); } catch (e) {} }
 
@@ -1049,9 +1049,21 @@ function leave(e) {
     SFX.play('stamp_no');
   }
   const hwd = e.docs.find((d) => d.key === 'hw');
-  if (hwd && hwd.doc.ex && hwd.doc.marks && hwd.doc.ex.every((ex, i) => hwd.doc.marks[i] === ex.ok)) {
-    B.gradeOk = (B.gradeOk || 0) + 1;
-    B.pay += 1;
+  if (hwd && hwd.doc.ex && hwd.doc.marks) {
+    if (hwd.doc.ex.every((ex, i) => hwd.doc.marks[i] === ex.ok)) { B.gradeOk = (B.gradeOk || 0) + 1; B.pay += 1; }
+    const mism = hwd.doc.marks.filter((m, i) => m !== null && m !== hwd.doc.ex[i].ok).length;
+    if (mism > 0) {
+      const before = S.gradeWrong;
+      S.gradeWrong += mism;
+      B.gradeWrongDay = (B.gradeWrongDay || 0) + mism;
+      if (before < 4 && S.gradeWrong >= 4) later(0.5, () => { if (B) { flashMsg('教导主任预警 I：你的批改质量异常'); SFX.play('discrepancy'); } });
+      if (before < 7 && S.gradeWrong >= 7) later(0.6, () => { if (B) { flashMsg('教导主任预警 II：绩效监控扣款 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
+      if (before < 10 && S.gradeWrong >= 10) later(0.7, () => { if (B) { flashMsg('教导主任预警 III：最后通牒——再错就直接调岗'); B.shake = now; SFX.play('discrepancy'); } });
+      if (S.gradeWrong >= 13 && !S.fired) {
+        S.fired = true; saveGame();
+        later(2.2, () => { if (B) { B.ending = true; go('over'); } });
+      }
+    }
   }
   B.lastVerdict = dec || 'skip';
   if (e.spec.react && e.spec.react[dec]) runSteps(e.spec.react[dec]);
@@ -1567,6 +1579,9 @@ function drawBoothBg() {
   const TIPS = { 4: '涌现预警：有学生声称作业会自己长出来', 5: '涌现预警：代写团伙自称「涌现工作室」', 6: '涌现预警：补课教室查获「涌现型」作业本', 7: '涌现预警：月考前夜，涌现高发期' };
   if (S.day >= 4 && TIPS[S.day]) txt(634, 130, TIPS[S.day], 8, 'rgb(200,120,90)', 'ra');
   txt(634, 16, `${B.pay} 分`, 12, K.ORANGE, 'ra');
+  const gwv = Math.min(10, S.gradeWrong || 0);
+  const gcol = gwv >= 8 ? K.RED : gwv >= 4 ? K.ORANGE : K.GREEN;
+  txt(634, 32, `主任关注 ${gwv}/10`, 8, gcol, 'ra');
 }
 function drawBtn(b, label, hot) {
   rect(b[0], b[1], b[2], b[3], hot ? K.CLAUDE : 'rgb(52,48,44)');
@@ -1795,7 +1810,7 @@ function drawNewsIcon(kind, cx, cy) {
 }
 function initSummary() {
   S.pay += B.pay;
-  try { localStorage.setItem('ipc_save', JSON.stringify({ day: Math.min(S.day + 1, LAST_DAY), pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0 })); } catch (e) {}
+  try { localStorage.setItem('ipc_save', JSON.stringify({ day: Math.min(S.day + 1, LAST_DAY), pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0, gradeWrong: S.gradeWrong || 0, fired: S.fired || false })); } catch (e) {}
 }
 function drawSummary(t) {
   rect(0, 0, W - 1, H - 1, K.INK);
@@ -1806,6 +1821,7 @@ function drawSummary(t) {
     ['检查份数', `${B.total} 份`],
     ['批改正确', `${B.correct} 份`],
     ['批改全对', `${B.gradeOk || 0} 本`],
+    ['批改错误', `${B.gradeWrongDay || 0} 处`],
     ['立法进度', `${Object.keys(S.laws || {}).length}/7 条`],
     ['护身符', `${S.charm || 0} 个`],
     ['误判单', `${B.total - B.correct} 张`],
@@ -1894,7 +1910,8 @@ function drawEnd(t) {
 function drawOver(t) {
   rect(0, 0, W - 1, H - 1, K.INK);
   txt(320, 120, '你被调去管宿舍了', 22, K.RED, 'ma');
-  txt(320, 160, '误判太多，教导处找你谈了话。', 10, K.GREY, 'ma');
+  txt(320, 148, `批改错误累计 ${S.gradeWrong} 处`, 12, K.PAPER, 'ma');
+  txt(320, 172, '教导主任：你的红笔已经不适合再碰作业本了。', 10, K.GREY, 'ma');
   const r = restartBtn();
   rect(...r, 'rgb(52,48,44)'); outline(...r, K.OUTLINE);
   txt(320, 294, '重新开始', 12, K.CLAUDE_L, 'ma');
