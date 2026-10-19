@@ -298,7 +298,7 @@ class Passport {
     rect(x + 3, y + 3, x + w - 4, y + 16, this.band);
     txt(x + w / 2, y + 5, this.country, 8, K.PAPER, 'ma');
     rect(x + 9, y + 22, x + 50, y + 73, K.PAPER_D);
-    drawPhoto(x + 10, y + 23, this.photoSeed || 0);
+    drawPhoto(x + 10, y + 23, this.photoI === undefined ? (this.photoSeed || 0) : this.photoI);
     // 粗糙的小国徽：盾 + 星
     outline(x + 20, y + 80, x + 38, y + 100, K.GOLD);
     line(x + 29, y + 84, x + 29, y + 96, K.GOLD);
@@ -313,7 +313,8 @@ class Passport {
 
 // 程序生成证件照：种子 → 脸型/发色/发型
 function drawPhoto(x, y, seed, crayon = false) {
-  if (!crayon && aiReady('photo' + (((seed || 0) % 6) + 6) % 6)) { G.drawImage(AIIMG['photo' + (((seed || 0) % 6) + 6) % 6], x, y, 40, 50); return; }
+  const pi = ((seed || 0) % 6 + 6) % 6;
+  if (!crayon && aiReady('photo' + pi)) { G.drawImage(AIIMG['photo' + pi], x, y, 40, 50); return; }
   const r = (n) => { seed = (seed * 9301 + 49297) % 233280; return (seed / 233280) * n; };
   const skins = ['rgb(198,152,120)', 'rgb(168,120,92)', 'rgb(222,180,150)', 'rgb(140,96,70)'];
   const hairs = ['rgb(40,32,28)', 'rgb(90,60,36)', 'rgb(150,110,60)', 'rgb(70,70,74)'];
@@ -419,6 +420,7 @@ const LAW_DEFS = {
   real: { head: '§4 作业须真实', subs: ['禁止打印代写', '禁止抄袭（错处雷同即实锤）', '家长签字须真实'] },
   xray: { head: '§5 课桌须干净', subs: ['违禁：手机、游戏机、漫画'] },
   note: { head: '§6 代写产业链：一律上报', subs: ['往来小纸条 = 实锤', '宣称「涌现」：按代写论处'] },
+  photo: { head: '§7 人证须相符', subs: ['窗口本人 vs 证件照', '对不上：按冒用证件论处'] },
 };
 
 class Rulebook {
@@ -552,10 +554,10 @@ function randName() {
 }
 const randStuNo = () => '202602' + pad2(rint(1, 44));
 
-function makeStudentID(name, no, sex) {
+function makeStudentID(name, no, sex, photoI) {
   return new Passport({
     country: '城关中学 · ' + OUR_CLASS, name,
-    cover: [50, 72, 122], band: [72, 96, 148], photoSeed: rint(1, 9999),
+    cover: [50, 72, 122], band: [72, 96, 148], photoSeed: rint(1, 9999), photoI: photoI === undefined ? rint(0, 5) : photoI,
     rows: [['学号', no], ['性别', sex || pick(['男', '女'])]],
   });
 }
@@ -605,12 +607,13 @@ const RANDOM_TELLS = [
 
 function cleanStudent() {
   const name = randName(), no = randStuNo();
+  const art = rint(0, 3);
   return {
-    pname: name,
+    pname: name, art,
     voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
     hello: pick(['老师好。', '作业写完了，老师。', '老师，交作业。']),
     thanks: pick(['谢谢老师！', '耶！']),
-    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no }) }],
+    docs: [{ key: 'st', doc: makeStudentID(name, no, null, art) }, { key: 'hw', doc: makeHomework({ name, no }) }],
     primary: 'hw', ok: ['approve'],
     intro: [['E', '老师好。']],
     issues: [],
@@ -788,6 +791,23 @@ function aiStudent() {
   };
 }
 
+function impersonatorStudent() {
+  const name = randName(), no = randStuNo();
+  const art = rint(0, 3);
+  const photoI = pick([0, 1, 2, 3, 4, 5].filter((i) => i !== art));
+  return {
+    pname: pick(['王超', '李强', '陈晨']), art, photoI,
+    voice: 105 + rint(-10, 30), photoSeed: rint(1, 9999),
+    hello: '老师，交作业。', thanks: '……',
+    docs: [{ key: 'st', doc: makeStudentID(name, no, null, photoI) }, { key: 'hw', doc: makeHomework({ name, no }) }],
+    primary: 'hw', ok: ['deny'], reason: '人证不符（冒用证件）', chain: true,
+    intro: [['E', '老师，我的作业。']],
+    issues: [{ law: 'photo', pairs: [['me.本人', 'st.photo'], ['st.photo', 'me.本人']], title: '人证不符', sub: '窗口本人 ≠ 证件照',
+      ask: [['C', '证件照上的人是你？'], ['E', '……那天剪头发了。剪得亲妈都不认识。', { expr: 'nervous', sweat: true }]] }],
+    react: { deny: [['E', '……被看出来了。证件是我哥的。', { expr: 'sad' }]] },
+  };
+}
+
 function sloppyStudent() {
   const name = randName(), no = randStuNo();
   return {
@@ -828,7 +848,7 @@ function buildQueue(day) {
     q.push(cleanStudent());
     q.push(drawerStudent('manga'));
     q.push(tellStudent());
-    q.push(sloppyStudent());
+    q.push(impersonatorStudent());
     q.push(drawerStudent('console'));
   } else if (day === 5) {
     q.push(noteStudent());
@@ -845,6 +865,7 @@ function buildQueue(day) {
     q.push(noteStudent());
     q.push(dateIssueStudent());
     q.push(sloppyStudent());
+    q.push(impersonatorStudent());
     q.push(drawerStudent(pick(['earbuds', 'novel', 'phone'])));
   } else {
     q.push(forgedSignStudent());
@@ -874,6 +895,7 @@ const DETAIN_BTN = [172, 268, 212, 280];
 const QUIZ_BTN = [126, 268, 166, 280];
 const INSPECT_BTN = [602, 322, 634, 354];
 const DRAWER_BTN = [566, 322, 598, 354];
+const DETECT_BTN = [494, 322, 526, 354];
 const RULE_BTN = [530, 322, 562, 354];
 const ASK_BTN = [548, 140, 590, 162];
 const BANNER_BOX = [300, 134, 598, 170];
@@ -890,6 +912,7 @@ function startDay() {
     tray: { open: false, t: -9 }, presses: [],
     insp: { on: false, sel: [], banner: null },
     drawer: { on: false },
+    detect: { uses: S.day >= 3 ? 2 : 0, active: false },
     ruleInst: null, ruleOpened: false, speakerT: -9,
     pay: 5, correct: 0, total: 0, flash: null,
     ending: false, lastFinish: now,
@@ -1112,6 +1135,11 @@ function fieldAt(x, y) {
       if (inBox(x, y, b)) return { key: it.key, box: () => b };
     }
   }
+  if (B.drawer && B.drawer.on) { /* 抽屉视图优先，本人不可点 */ }
+  else if (e && e.handed && e.phase === 'here') {
+    const ex2 = entrantX(e);
+    if (ex2 !== null && inBox(x, y, [ex2 - 26, 176, ex2 + 26, 256])) return { key: 'me.本人', box: () => [ex2 - 26, 176, ex2 + 26, 256] };
+  }
   if (e && e.handed) {
     for (const { ln, box } of lineBoxes()) {
       if (ln.who === 'E' && ln.ent === e && inBox(x, y, box)) return { key: 'say', ln, box: () => box };
@@ -1249,6 +1277,20 @@ function onUp(ev) {
 }
 function boothInput(x, y) {
   if (B.ending) return;
+  if (S.day >= 3 && B.detect.uses > 0 && inBox(x, y, DETECT_BTN)) { B.detect.active = !B.detect.active; SFX.play('select'); return; }
+  if (B.detect.active) {
+    let hitHw = null;
+    for (const d of [...B.docs].reverse()) {
+      if (d.key === 'hw' && d.big && inBox(x, y, docBox(d))) { hitHw = d; break; }
+    }
+    if (!hitHw) { flashMsg('AI 检测仪：点一份作业本扫描'); return; }
+    B.detect.uses--; B.detect.active = false;
+    SFX.play('slip');
+    const aiIssue = B.ent && B.ent.spec.issues.find((is) => is.title === 'AI 代写' || is.title === '代写嫌疑');
+    if (aiIssue) showIssue(aiIssue);
+    else I0(); function I0() { B.insp.banner = { title: 'AI 检测：阴性', sub: '这份作业是人写的', bad: false }; }
+    return;
+  }
   if (S.day >= 4 && inBox(x, y, DRAWER_BTN)) { B.drawer.on = !B.drawer.on; SFX.play('whoosh'); return; }
   if (inBox(x, y, INSPECT_BTN)) return setInspect(!B.insp.on);
   if (B.insp.on) return inspectClick(x, y);
@@ -1355,7 +1397,7 @@ function drawEntrant(e, ex) {
   const skin = SKINS[sd % SKINS.length], coat = 'rgb(72,96,150)', hair = HAIRC[(sd >> 4) % HAIRC.length];
   const baseY = 262, bounce = e.phase === 'enter' ? Math.round(Math.sin(now * 14)) : 0;
   const cx = ex, by = baseY - bounce;
-  const artImg = aiReady('stu' + 'ABCD'[sd % 4] + artExprIdx(e)) ? AIIMG['stu' + 'ABCD'[sd % 4] + artExprIdx(e)] : null;
+  const artImg = aiReady('stu' + 'ABCD'[(e.spec.art === undefined ? sd : e.spec.art) % 4] + artExprIdx(e)) ? AIIMG['stu' + 'ABCD'[(e.spec.art === undefined ? sd : e.spec.art) % 4] + artExprIdx(e)] : null;
   if (artImg) {
     const hh = 94, ww = artImg.width * (hh / artImg.height);
     G.drawImage(artImg, Math.round(cx - ww / 2), by - hh, ww, hh);
@@ -1487,6 +1529,7 @@ function drawBoothBg() {
   }
   drawBtn(RULE_BTN, '班规');
   drawBtn(INSPECT_BTN, B.insp.on ? '退出' : '?检查', B.insp.on);
+  if (S.day >= 3 && B.detect.uses > 0) drawBtn(DETECT_BTN, 'AI检测' + B.detect.uses, B.detect.active);
   if (S.day >= 4) drawBtn(DRAWER_BTN, '搜课桌', B.drawer && B.drawer.on);
   // 班规书图标（合上时）
   if (B.ruleInst && !B.ruleInst.big) {
@@ -1635,6 +1678,7 @@ function drawBooth() {
   drawClerk();
   drawEntrant(B.ent, entrantX(B.ent));
   if (B.drawer && B.drawer.on) drawDrawer();
+  if (B.detect.active) txt(452, 126, 'AI 检测中：点一份作业本扫描', 8, K.ORANGE, 'ma');
   drawDocs();
   drawTray();
   drawLines();
@@ -1717,7 +1761,7 @@ function drawNews(t) {
   rect(nx + 24, ny + 148, nx + nw - 24, ny + 148, K.PAPER_D);
   wrap(item.h2, 10, nw - 48).forEach((s, i) => txt(nx + 24, ny + 160 + i * 14, s, 10, K.TEXT_L));
   const lawN = Object.keys(S.laws || {}).length;
-  txt(nx + 24, ny + nh - 26, '涌现监测：班规已立法 ' + lawN + ' / 6 条' + ((S.wrongApprove || 0) ? ' · 漏网 ' + S.wrongApprove + ' 起' : ''), 8, K.TEXT_L);
+  txt(nx + 24, ny + nh - 26, '涌现监测：班规已立法 ' + lawN + ' / 7 条' + ((S.wrongApprove || 0) ? ' · 漏网 ' + S.wrongApprove + ' 起' : ''), 8, K.TEXT_L);
   if (t > 0.9 && Math.sin(t * 3) > -0.2) txt(ix, ny + nh + 22, '- 点击开始工作 -', 10, K.GREY, 'ma');
 }
 function drawNewsIcon(kind, cx, cy) {
@@ -1738,7 +1782,7 @@ function drawSummary(t) {
     ['检查份数', `${B.total} 份`],
     ['批改正确', `${B.correct} 份`],
     ['批改全对', `${B.gradeOk || 0} 本`],
-    ['立法进度', `${Object.keys(S.laws || {}).length}/6 条`],
+    ['立法进度', `${Object.keys(S.laws || {}).length}/7 条`],
     ['误判单', `${B.total - B.correct} 张`],
     ['涌现企图', `${B.total - B.correct} 起`],
     ['当日绩效', `${B.pay} 分`],
@@ -1765,7 +1809,7 @@ function drawEnd(t) {
   const score = S.cites === 0 ? '月考数学平均分 92 · 年级第一' : S.cites <= 3 ? '月考数学平均分 84 · 稳中有升' : '月考数学平均分 71 · 有学生原形毕露';
   txt(320, 232, score, 10, K.PAPER, 'ma');
   const lawsN = Object.keys(S.laws || {}).length;
-  if (S.cites === 0 && lawsN >= 6) txt(320, 116, '★ 金结局 · 涌现大师：六法立齐，零误判 ★', 11, K.GOLD, 'ma');
+  if (S.cites === 0 && lawsN >= 7) txt(320, 116, '★ 金结局 · 涌现大师：七法立齐，零误判 ★', 11, K.GOLD, 'ma');
   if ((S.wrongApprove || 0) >= 3) txt(320, 178, '漏网之鱼结局：你放过的学生里，有人月考顶替了别人的名字', 10, K.RED, 'ma');
   if ((S.wrongDeny || 0) >= 3) txt(320, 178, '铁腕结局：家长会上，三封投诉信点了你的名', 10, K.RED, 'ma');
   const audit = S.cites === 0 ? '涌现审计：反涌现标兵' : S.cites <= 3 ? '涌现审计：合格班主任' : '涌现审计：涌现重灾区';
