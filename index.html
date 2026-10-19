@@ -1,0 +1,1567 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#161313">
+<title>HOMEWORK, PLEASE · 请出示你的作业（班主任版）</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 13 13'%3E%3Cpath fill='%23cc7050' d='M6 0h1v13H6zM0 6h13v1H0zM5 3h3v7H5zM3 5h7v3H3z'/%3E%3C/svg%3E">
+<style>
+  html, body { margin:0; height:100%; background:#161313; overflow:hidden; }
+  body { display:flex; align-items:center; justify-content:center; font-family:system-ui,sans-serif; }
+  canvas { display:block; image-rendering:pixelated; image-rendering:crisp-edges; touch-action:none; user-select:none; -webkit-user-select:none; }
+  @media (pointer:fine){ canvas{ cursor:none; } }
+  .ui { position:fixed; top:6px; right:8px; display:flex; gap:6px; z-index:2; }
+  .ui button { font:12px system-ui,sans-serif; color:#968f87; background:rgba(22,19,19,.7); border:1px solid #4a4440; border-radius:3px; padding:3px 8px; cursor:pointer; }
+  .ui button:hover { color:#e4dfd4; }
+</style>
+</head>
+<body>
+<canvas id="game" width="640" height="360"></canvas>
+<div class="ui">
+  <button id="mute" type="button">声音：开</button>
+  <button id="full" type="button">全屏</button>
+</div>
+<script>
+'use strict';
+// ============================================================
+//  IP CHECKPOINT —— 复刻练习版
+//  玩法致敬《IP, PLEASE》（ip-please.github.io）与《Papers, Please》
+//  全部代码、图形、音效为本文件内从零实现：无外部资源。
+// ============================================================
+
+// ══════════════ 0. 工具 ══════════════
+const W = 640, H = 360;
+const clampU = (u) => Math.max(0, Math.min(1, u));
+const seg = (t, a, b) => (b > a ? clampU((t - a) / (b - a)) : +(t >= b));
+const easeOut = (u) => 1 - (1 - u) ** 3;
+const lerp = (a, b, u) => a + (b - a) * u;
+const inBox = (x, y, b) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3];
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const rint = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+const shuffle = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = rint(0, i); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+const digits = (n) => Array.from({ length: n }, () => rint(0, 9)).join('');
+const pad2 = (n) => String(n).padStart(2, '0');
+const randDate = (y0, y1) => `${rint(y0, y1)}.${pad2(rint(1, 12))}.${pad2(rint(1, 28))}`;
+const todayStr = () => '2026.10.' + pad2(18 + S.day);
+
+// ══════════════ 1. 调色板与图元 ══════════════
+const C = {
+  INK: [22, 19, 19], OUTLINE: [34, 27, 25], GROUND: [93, 87, 78], GROUND_D: [70, 64, 58],
+  WALL: [46, 42, 39], COUNTER: [98, 86, 73], DESK: [68, 57, 50], DESK_D: [52, 44, 39], DESK_L: [86, 73, 63],
+  PAPER: [226, 215, 196], PAPER_D: [200, 187, 167], PAPER_LINE: [216, 204, 184],
+  PINK: [224, 198, 186], PINK_D: [196, 166, 156], SAGE: [208, 214, 190], SAGE_D: [172, 180, 152],
+  TEXT: [74, 56, 48], TEXT_L: [128, 106, 92], NAVY: [42, 50, 76], NAVY_L: [60, 70, 100],
+  RED: [180, 46, 40], RED_D: [120, 30, 28], GREEN: [84, 128, 70], GREEN_D: [56, 88, 48],
+  WHITE: [228, 223, 212], GREY: [150, 145, 136], GREY_D: [100, 94, 88], ORANGE: [220, 150, 70],
+  CLAUDE: [204, 112, 80], CLAUDE_L: [232, 156, 116], GOLD: [190, 160, 100], BOOK: [92, 64, 50], BOOK_L: [130, 100, 70],
+  SKIN: [198, 152, 120], XRAY_BG: [18, 40, 42],
+};
+const K = {};
+for (const k in C) K[k] = `rgb(${C[k][0]},${C[k][1]},${C[k][2]})`;
+const rgb3 = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
+
+let G = null;
+function setCtx(ctx) { G = ctx; G.imageSmoothingEnabled = false; }
+function makeCanvas(w, h) {
+  const c = document.createElement('canvas'); c.width = Math.max(1, w); c.height = Math.max(1, h);
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+  return [c, g];
+}
+function rect(x0, y0, x1, y1, col) { G.fillStyle = col; G.fillRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1); }
+function outline(x0, y0, x1, y1, col, w = 1) {
+  rect(x0, y0, x1, y0 + w - 1, col); rect(x0, y1 - w + 1, x1, y1, col);
+  rect(x0, y0, x0 + w - 1, y1, col); rect(x1 - w + 1, y0, x1, y1, col);
+}
+function pt(x, y, col) { G.fillStyle = col; G.fillRect(x, y, 1, 1); }
+function line(x0, y0, x1, y1, col) {
+  x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+  if (y0 === y1) return rect(Math.min(x0, x1), y0, Math.max(x0, x1), y0, col);
+  if (x0 === x1) return rect(x0, Math.min(y0, y1), x0, Math.max(y0, y1), col);
+  G.fillStyle = col;
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  for (;;) {
+    G.fillRect(x0, y0, 1, 1);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+  }
+}
+function darken(a, col = K.INK, box = null) {
+  G.fillStyle = col === K.INK ? `rgba(22,19,19,${a})` : col;
+  if (box) G.fillRect(box[0], box[1], box[2] - box[0], box[3] - box[1]); else G.fillRect(0, 0, W, H);
+}
+const CURSOR_PX = ['X.........','XX........','XWX.......','XWWX......','XWWWX.....','XWWWWX....','XWWWWWX...','XWWWWWWX..','XWWWWWWWX.','XWWWWXXXXX','XWWXWX....','XWX.XWX...','XX...XWX..','......XX..'];
+const HAND_PX = ['....XX......','...XWWX.....','...XWWX.....','...XWWXXX...','...XWWXWWXX.','.XXXWWXWWXWX','XWWXWWWWWXWX','XWWWWWWWWWWX','.XWWWWWWWWWX','..XWWWWWWWX.','...XWWWWWX..','...XXXXXXX..'];
+function drawCursorPx(pat, x, y) {
+  for (let j = 0; j < pat.length; j++) for (let i = 0; i < pat[j].length; i++) {
+    const c = pat[j][i];
+    if (c === 'X') { G.fillStyle = K.INK; G.fillRect(x + i, y + j, 1, 1); }
+    else if (c === 'W') { G.fillStyle = K.WHITE; G.fillRect(x + i, y + j, 1, 1); }
+  }
+}
+
+// ══════════════ 2. 像素字管线：4 倍绘制 → 最近邻降采样 ══════════════
+const PXK = 4;
+const [MEAS, MG] = makeCanvas(8, 8);
+const FONT_STACK = '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif';
+const wCache = new Map(), tCache = new Map();
+function chW(ch, size) {
+  const key = size + '|' + ch;
+  let w = wCache.get(key);
+  if (w !== undefined) return w;
+  MG.font = `bold ${size * PXK}px ${FONT_STACK}`;
+  w = Math.max(1, Math.round(MG.measureText(ch).width / PXK));
+  if (wCache.size > 4000) wCache.clear();
+  wCache.set(key, w);
+  return w;
+}
+function tw(s, size = 12) { let w = 0; for (const ch of String(s)) w += chW(ch, size); return w; }
+function textCanvas(s, size, col) {
+  const key = size + '|' + col + '|' + s;
+  let c = tCache.get(key);
+  if (c) return c;
+  if (tCache.size > 1200) tCache.clear();
+  const w = tw(s, size) + 4, h = size + 6;
+  const [cv, g] = makeCanvas(w * PXK, h * PXK);
+  g.font = `bold ${size * PXK}px ${FONT_STACK}`;
+  g.textBaseline = 'top';
+  g.fillStyle = '#000';
+  let x = 2 * PXK;
+  for (const ch of s) { g.fillText(ch, x, PXK); x += chW(ch, size) * PXK; }
+  g.globalCompositeOperation = 'source-in';
+  g.fillStyle = col;
+  g.fillRect(0, 0, cv.width, cv.height);
+  const [out, og] = makeCanvas(w, h);
+  og.drawImage(cv, 0, 0, w, h);
+  tCache.set(key, out);
+  return out;
+}
+function txt(x, y, s, size = 12, col = K.WHITE, anchor = 'la') {
+  s = String(s);
+  if (!s) return;
+  const c = textCanvas(s, size, col);
+  const w = tw(s, size);
+  if (anchor === 'ma') x = Math.round(x - w / 2);
+  else if (anchor === 'ra') x -= w;
+  G.drawImage(c, x - 2, y - 1);
+}
+function wrap(s, size, width) {
+  const lines = []; let cur = '';
+  for (const ch of s) {
+    if (ch === '\n') { lines.push(cur); cur = ''; continue; }
+    if (cur && tw(cur + ch, size) > width) { lines.push(cur); cur = ch.trim(); } else cur += ch;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+// ══════════════ 3. 音效（WebAudio 全合成） ══════════════
+const SFX = {
+  ac: null, muted: false, hum: null,
+  init() {
+    if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume(); return; }
+    try { this.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+  },
+  t() { return this.ac.currentTime; },
+  env(g0, t0, a, d, peak = 1) {
+    const g = this.ac.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(peak * g0, t0 + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + a + d);
+    g.connect(this.ac.destination);
+    return g;
+  },
+  osc(type, f0, f1, t0, dur) {
+    const o = this.ac.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t0);
+    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + dur);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+    return o;
+  },
+  noise(t0, dur) {
+    const n = this.ac.createBufferSource();
+    const buf = this.ac.createBuffer(1, Math.ceil(this.ac.sampleRate * dur), this.ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    n.buffer = buf; n.start(t0);
+    return n;
+  },
+  play(name, vol = 1) {
+    this.init();
+    if (!this.ac || this.muted) return;
+    const t0 = this.t(), A = this.ac;
+    if (name === 'click') { this.osc('square', 900, 700, t0, 0.04).connect(this.env(0.12 * vol, t0, 0.004, 0.05)); }
+    else if (name === 'select') { this.osc('square', 660, 880, t0, 0.06).connect(this.env(0.1 * vol, t0, 0.004, 0.07)); }
+    else if (name === 'paper') {
+      const n = this.noise(t0, 0.14), f = A.createBiquadFilter();
+      f.type = 'bandpass'; f.frequency.value = 2400 + Math.random() * 800; f.Q.value = 0.8;
+      n.connect(f); f.connect(this.env(0.16 * vol, t0, 0.005, 0.13));
+    } else if (name === 'thud') { this.osc('sine', 150, 55, t0, 0.12).connect(this.env(0.5 * vol, t0, 0.003, 0.14)); }
+    else if (name === 'stamp_ok') {
+      this.osc('sine', 160, 50, t0, 0.1).connect(this.env(0.5 * vol, t0, 0.002, 0.12));
+      this.osc('square', 1200, 1200, t0 + 0.02, 0.05).connect(this.env(0.06 * vol, t0 + 0.02, 0.002, 0.06));
+    } else if (name === 'stamp_no') {
+      this.osc('square', 130, 90, t0, 0.22).connect(this.env(0.3 * vol, t0, 0.004, 0.24));
+      this.osc('sawtooth', 65, 60, t0, 0.22).connect(this.env(0.2 * vol, t0, 0.004, 0.24));
+    } else if (name === 'discrepancy') {
+      this.osc('square', 880, 880, t0, 0.09).connect(this.env(0.14 * vol, t0, 0.004, 0.1));
+      this.osc('square', 660, 660, t0 + 0.11, 0.12).connect(this.env(0.14 * vol, t0 + 0.11, 0.004, 0.13));
+    } else if (name === 'intercom') {
+      this.osc('sine', 820, 820, t0, 0.1).connect(this.env(0.1 * vol, t0, 0.01, 0.12));
+      this.osc('sine', 820, 820, t0 + 0.16, 0.1).connect(this.env(0.1 * vol, t0 + 0.16, 0.01, 0.12));
+    } else if (name === 'step') {
+      const n = this.noise(t0, 0.05), f = A.createBiquadFilter();
+      f.type = 'lowpass'; f.frequency.value = 300;
+      n.connect(f); f.connect(this.env(0.22 * vol, t0, 0.002, 0.06));
+    } else if (name === 'day_hit') {
+      this.osc('sine', 220, 45, t0, 0.3).connect(this.env(0.6 * vol, t0, 0.003, 0.32));
+      this.noise(t0, 0.06).connect(this.env(0.1 * vol, t0, 0.002, 0.06));
+    } else if (name === 'whoosh') {
+      const n = this.noise(t0, 0.3), f = A.createBiquadFilter();
+      f.type = 'bandpass'; f.frequency.setValueAtTime(400, t0);
+      f.frequency.exponentialRampToValueAtTime(3600, t0 + 0.28); f.Q.value = 1.2;
+      n.connect(f); f.connect(this.env(0.14 * vol, t0, 0.05, 0.26));
+    } else if (name === 'coin') {
+      this.osc('square', 990, 990, t0, 0.07).connect(this.env(0.09 * vol, t0, 0.003, 0.08));
+      this.osc('square', 1320, 1320, t0 + 0.08, 0.12).connect(this.env(0.09 * vol, t0 + 0.08, 0.003, 0.13));
+    } else if (name === 'sad') {
+      [392, 330, 262].forEach((f0, i) => this.osc('triangle', f0, f0, t0 + i * 0.16, 0.22).connect(this.env(0.12 * vol, t0 + i * 0.16, 0.01, 0.24)));
+    } else if (name === 'slip') {
+      this.osc('square', 500, 1500, t0, 0.12).connect(this.env(0.1 * vol, t0, 0.004, 0.14));
+    }
+  },
+  mumble(text, pitch, seed) {
+    this.init();
+    if (!this.ac || this.muted) return;
+    const t0 = this.t(), n = Math.min(10, Math.max(3, Math.floor([...text].length / 2.4)));
+    for (let i = 0; i < n; i++) {
+      const f = pitch * (1 + 0.22 * Math.sin(seed * 3.7 + i * 2.9));
+      this.osc('square', f, f * 0.92, t0 + i * 0.055, 0.045).connect(this.env(0.05, t0 + i * 0.055, 0.004, 0.05));
+    }
+  },
+  ambient(on) {
+    this.init();
+    if (!this.ac) return;
+    if (on && !this.hum && !this.muted) {
+      const o = this.ac.createOscillator(), g = this.ac.createGain(), f = this.ac.createBiquadFilter();
+      o.type = 'sawtooth'; o.frequency.value = 52;
+      f.type = 'lowpass'; f.frequency.value = 140;
+      g.gain.value = 0.018;
+      o.connect(f); f.connect(g); g.connect(this.ac.destination); o.start();
+      this.hum = { o, g };
+    } else if (!on && this.hum) { try { this.hum.o.stop(); } catch (e) {} this.hum = null; }
+  },
+  toggleMute() {
+    this.muted = !this.muted;
+    if (this.muted) this.ambient(false);
+    else if (scene === 'booth') this.ambient(true);
+    return this.muted;
+  },
+};
+
+// ══════════════ 4. 证件与作业 ══════════════
+function docShadow(x, y, w, h) { rect(x + 2, y + 2, x + w + 1, y + h + 1, K.DESK_D); }
+
+class Passport {
+  constructor({ country, name, rows, cover = C.NAVY, band = C.NAVY_L, crayon = false, expired = false }) {
+    Object.assign(this, { country, name, rows, crayon });
+    this.cover = rgb3(cover); this.band = rgb3(band);
+    this.w = 176; this.h = 118;
+    this.icon = ['book', cover];
+    this.fields = { header: [3, 3, 172, 16], name: [56, 20, 172, 34], photo: [9, 22, 50, 73] };
+    rows.forEach(([k], i) => { this.fields[k] = [56, 40 + i * 12, 160, 51 + i * 12]; });
+    if (expired) this.exp = rows.find((r) => r[0] === 'EXP');
+  }
+  draw(x, y) {
+    const { w, h } = this;
+    docShadow(x, y, w, h);
+    rect(x, y, x + w - 1, y + h - 1, this.cover);
+    rect(x + 3, y + 3, x + w - 4, y + h - 4, K.PAPER);
+    for (let yy = y + 22; yy < y + h - 20; yy += 4) rect(x + 56, yy, x + w - 8, yy, K.PAPER_LINE);
+    rect(x + 3, y + 3, x + w - 4, y + 16, this.band);
+    txt(x + w / 2, y + 5, this.country, 8, K.PAPER, 'ma');
+    rect(x + 9, y + 22, x + 50, y + 73, K.PAPER_D);
+    drawPhoto(x + 10, y + 23, this.photoSeed || 0);
+    // 粗糙的小国徽：盾 + 星
+    outline(x + 20, y + 80, x + 38, y + 100, K.GOLD);
+    line(x + 29, y + 84, x + 29, y + 96, K.GOLD);
+    line(x + 24, y + 88, x + 34, y + 88, K.GOLD);
+    txt(x + 58, y + 21, this.name, tw(this.name, 12) > 112 ? 10 : 12, K.TEXT);
+    this.rows.forEach(([k, v], i) => {
+      txt(x + 58, y + 41 + i * 12, k, 8, K.TEXT_L);
+      txt(x + 84, y + 40 + i * 12, v, tw(v, 10) > 92 ? 8 : 10, K.TEXT);
+    });
+  }
+}
+
+// 程序生成证件照：种子 → 脸型/发色/发型
+function drawPhoto(x, y, seed, crayon = false) {
+  const r = (n) => { seed = (seed * 9301 + 49297) % 233280; return (seed / 233280) * n; };
+  const skins = ['rgb(198,152,120)', 'rgb(168,120,92)', 'rgb(222,180,150)', 'rgb(140,96,70)'];
+  const hairs = ['rgb(40,32,28)', 'rgb(90,60,36)', 'rgb(150,110,60)', 'rgb(70,70,74)'];
+  const skin = skins[Math.floor(r(skins.length))], hair = hairs[Math.floor(r(hairs.length))];
+  const bg = crayon ? 'rgb(210,200,170)' : 'rgb(180,170,150)';
+  rect(x, y, x + 39, y + 49, bg);
+  rect(x + 12, y + 34, x + 27, y + 49, crayon ? 'rgb(80,90,170)' : 'rgb(60,60,70)'); // 肩
+  rect(x + 14, y + 8, x + 25, y + 36, skin); // 脸
+  const hs = Math.floor(r(3));
+  if (hs === 0) rect(x + 13, y + 4, x + 26, y + 12, hair);
+  else if (hs === 1) { rect(x + 13, y + 5, x + 26, y + 10, hair); rect(x + 12, y + 8, x + 14, y + 20, hair); rect(x + 25, y + 8, x + 27, y + 20, hair); }
+  else rect(x + 13, y + 6, x + 26, y + 11, hair);
+  const ey = y + 18 + Math.floor(r(3));
+  pt(x + 17, ey, '#222'); pt(x + 22, ey, '#222');
+  const my = y + 27;
+  if (r(1) > 0.5) rect(x + 18, my, x + 21, my, '#5a3a30');
+  else pt(x + 19, my, '#5a3a30');
+  if (crayon) { // 蜡笔风：涂出界
+    G.fillStyle = 'rgba(120,140,220,.5)'; G.fillRect(x + 2, y + 2, 3, 44); G.fillRect(x + 34, y + 8, 3, 30);
+  }
+}
+
+class Card {
+  constructor(rows, { title = '作业本', sub = 'HOMEWORK', color = C.PINK, colorD = C.PINK_D, valueX = 40, seal = true, printed = false, forged = false } = {}) {
+    this.rows = rows; this.title = title; this.sub = sub; this.printed = printed; this.forged = forged;
+    this.color = rgb3(color); this.colorD = rgb3(colorD); this.valueX = valueX;
+    this.seal = seal;
+    this.w = 152;
+    this.h = 20 + 14 * rows.length + (this.seal ? 16 : 6);
+    this.icon = ['card', color];
+    this.fields = {};
+    rows.forEach(([k], i) => { this.fields[k] = [4, 18 + 14 * i, this.w - 5, 31 + 14 * i]; });
+  }
+  draw(x, y) {
+    const { w, h } = this;
+    docShadow(x, y, w, h);
+    rect(x, y, x + w - 1, y + h - 1, this.colorD);
+    rect(x + 1, y + 1, x + w - 2, y + h - 2, this.color);
+    rect(x + 1, y + 1, x + w - 2, y + 14, this.colorD);
+    txt(x + 6, y + 4, this.title, 10, K.TEXT);
+    txt(x + w - 6, y + 6, this.sub, 8, K.TEXT_L, 'ra');
+    if (this.seal) { // 圆形公章
+      outline(x + w - 34, y + h - 32, x + w - 12, y + h - 10, 'rgb(150,60,50)', 2);
+      outline(x + w - 30, y + h - 28, x + w - 16, y + h - 14, 'rgb(150,60,50)');
+      txt(x + w - 23, y + h - 25, 'AI', 8, 'rgb(150,60,50)', 'ma');
+    }
+    this.rows.forEach(([k, v], i) => {
+      const yy = y + 20 + i * 14;
+      txt(x + 8, yy, k, 10, K.TEXT_L);
+      if (this.forged && k === '签字') drawScribble(x + this.valueX, yy + 1, '爸爸');
+      else txt(x + this.valueX, yy, v, tw(v, 10) > w - this.valueX - 6 ? 8 : 10, K.TEXT);
+      G.fillStyle = this.colorD;
+      for (let sx = x + 6; sx < x + w - 6; sx += 2) G.fillRect(sx, yy + 11, 1, 1);
+    });
+  }
+}
+const accountCard = (pay, bill, phone) => new Card([['付款', pay], ['账单', bill], ['手机', phone]],
+  { title: '账户卡', sub: 'ACCOUNT', color: C.SAGE, colorD: C.SAGE_D, seal: false });
+
+class Citation {
+  constructor(lines) {
+    this.lines = lines;
+    this.w = 176; this.h = 28 + 13 * lines.length;
+    this.icon = ['card', [226, 184, 176]];
+    this.fields = {};
+  }
+  draw(x, y) {
+    const { w, h } = this;
+    docShadow(x, y, w, h);
+    rect(x, y, x + w - 1, y + h - 1, 'rgb(226,184,176)');
+    rect(x, y, x + w - 1, y + 16, K.RED_D);
+    txt(x + 6, y + 4, '教导处 · 家校联系单', 10, K.WHITE);
+    txt(x + w - 6, y + 6, 'NOTICE', 8, 'rgb(226,184,176)', 'ra');
+    this.lines.forEach((s, i) => txt(x + 8, y + 22 + i * 13, s, tw(s, 10) > w - 14 ? 8 : 10, i === this.lines.length - 1 ? K.RED_D : K.TEXT));
+  }
+}
+
+const RULES = [
+  { day: 1, page: 0, key: 'region', head: '§1 只收本班学生的作业', subs: ['本班：初三(2)班', '别班作业：退回原班'] },
+  { day: 2, page: 0, key: 'info', head: '§2 信息须与本人一致', subs: ['姓名、学号：与学生证一致', '日期：必须当天', '补交旧作业：无效（须附假条）'] },
+  { day: 2, page: 0, key: 'recite', head: '§3 抽背：有疑点才能抽', subs: ['背不出：请家长'] },
+  { day: 3, page: 1, key: 'real', head: '§4 作业须真实', subs: ['禁止打印代写', '禁止抄袭（错处雷同即实锤）', '家长签字须真实'] },
+];
+
+class Rulebook {
+  constructor(day) {
+    this.day = day; this.w = 200;
+    const rules = RULES.filter((r) => r.day <= day);
+    this.npages = day >= 3 ? 2 : 1;
+    this.pages = [];
+    for (let p = 0; p < this.npages; p++) {
+      const L = [];
+      for (const r of rules.filter((q) => q.page === p)) {
+        L.push({ s: r.head, size: 10, col: r.day === day ? K.RED_D : K.TEXT, key: r.key, isNew: r.day === day });
+        for (const s of r.subs) L.push({ s, size: 8, col: K.TEXT_L, key: r.key });
+      }
+      if (p === this.npages - 1) L.push({ s: '§12 只看作业，不看脸', size: 8, col: K.TEXT_L, key: null });
+      let y = 22;
+      const fields = {};
+      for (const row of L) {
+        row.y = y;
+        y += row.size === 10 ? 14 : 10;
+        if (row.key) {
+          const f = fields[row.key];
+          fields[row.key] = f ? [f[0], f[1], f[2], y - 2] : [4, row.y - 2, this.w - 5, y - 2];
+        }
+      }
+      this.pages.push({ rows: L, fields, h: y + 6 });
+    }
+    this.h = Math.max(...this.pages.map((p) => p.h));
+    this.page = this.npages - 1;
+    this.icon = ['book', C.BOOK];
+  }
+  get fields() { return this.pages[this.page].fields; }
+  flip() { this.page = (this.page + 1) % this.npages; }
+  draw(x, y) {
+    const { w, h } = this;
+    docShadow(x, y, w, h);
+    rect(x, y, x + w - 1, y + h - 1, K.BOOK);
+    rect(x + 3, y + 3, x + w - 4, y + h - 4, K.PAPER);
+    rect(x + 3, y + 3, x + w - 4, y + 16, K.BOOK_L);
+    txt(x + 8, y + 5, '班规 · 作业检查', 10, K.PAPER);
+    if (this.npages > 1) {
+      const tab = [this.w - 56, 3, this.w - 4, 16];
+      rect(x + tab[0], y + tab[1], x + tab[2], y + tab[3], K.BOOK);
+      txt(x + tab[2] - 4, y + 6, `第${this.page + 1}/${this.npages}页 ▶`, 8, K.PAPER, 'ra');
+    } else txt(x + w - 8, y + 6, `DAY ${this.day}`, 8, K.PAPER, 'ra');
+    for (const r of this.pages[this.page].rows) {
+      if (r.s.includes('|') && r.s.indexOf('|') < 8) {
+        const [a, b, c] = r.s.split('|');
+        txt(x + 12, y + r.y, a, 8, r.col); txt(x + 52, y + r.y, b, 8, r.col); txt(x + 150, y + r.y, c, 8, r.col);
+        continue;
+      }
+      txt(x + 8, y + r.y, r.s, r.size, r.col);
+      if (r.isNew) {
+        const nx = x + 10 + tw(r.s, r.size);
+        rect(nx, y + r.y - 1, nx + 21, y + r.y + 8, K.RED);
+        txt(nx + 3, y + r.y, 'NEW', 8, K.WHITE);
+      }
+    }
+  }
+}
+function smallIcon(kind, color, x, y) {
+  if (kind === 'book') { rect(x, y, x + 18, y + 12, K.INK); rect(x + 1, y + 1, x + 17, y + 11, rgb3(color)); pt(x + 9, y + 6, K.GOLD); }
+  else {
+    const d = color.map((c) => Math.floor(c * 0.8));
+    rect(x, y, x + 16, y + 10, rgb3(d)); rect(x + 1, y + 1, x + 15, y + 9, rgb3(color));
+    rect(x + 3, y + 4, x + 12, y + 4, rgb3(color.map((c) => Math.floor(c * 0.72))));
+  }
+}
+
+// 仿造签字：歪歪扭扭的红笔「爸爸」，笔画出界
+function drawScribble(x, y, s) {
+  G.fillStyle = 'rgba(150,40,40,0.8)';
+  for (let i = 0; i < 5; i++) G.fillRect(x + i * 9 + rint(-1, 1), y + 4 + rint(-1, 1), 7, 2);
+  txt(x, y, s, 10, 'rgb(150,40,40)');
+  rect(x + tw(s, 10) - 1, y - 2, x + tw(s, 10) + 2, y + 3, 'rgb(150,40,40)');
+}
+
+// ══════════════ 5. 数据：班级、名册与班规 ══════════════
+const OUR_CLASS = '初三(2)班';
+const OTHER_CLASSES = ['初三(1)班', '初三(3)班', '初三(4)班'];
+const SUBJECTS = ['数学', '语文', '英语', '物理'];
+const PAGE_RANGES = ['P32-P35', 'P21-P24', 'P40-P43', 'P12-P15', 'P8-P11'];
+const SURNAMES = ['王', '李', '张', '刘', '陈', '赵', '周', '吴', '郑', '孙'];
+const GIVEN = ['小明', '华', '伟', '静', '磊', '涛', '悦', '杰', '雪', '强', '丽', '军'];
+const NEWS = {
+  1: { h1: '明日早读收作业！', sub: '教导处：各班严查作业质量，杜绝蒙混', h2: '提醒：别班作业不要代收，一律退回原班', icon: 'gate' },
+  2: { h1: '新规：信息须与本人一致', sub: '有学生连姓名学号一起抄，被当场识破', h2: '震惊！某作业本姓名与学生证对不上', icon: 'clock' },
+  3: { h1: '家长签字造假泛滥', sub: '教导处：打印代写、抄袭雷同、伪造签字一律重做', h2: '某家长反映：自己三年没签过字', icon: 'plane' },
+};
+const LAST_DAY = 3;
+const WEEKDAYS = { 1: '星期一', 2: '星期二', 3: '星期三' };
+const QUIZ = [
+  ['床前明月光，下一句？', '疑是地上霜。'],
+  ['春眠不觉晓，下一句？', '处处闻啼鸟。'],
+  ['谁知盘中餐，下一句？', '粒粒皆辛苦。'],
+  ['把昨天学的课文背一段。', '……好、好的。'],
+];
+const QUIZ_CONFUSED = ['呃……老师我肚子疼。', '我昨天明明背过的……', '这个……下课再背行吗？'];
+const INTRO_LINES = ['月考临近，作业是第一道关。', '你是初三(2)班的班主任。', '批合格的，要站得住脚。', '想蒙混的，一个都别放过去。'];
+
+// —— 生成器 ——
+const usedNames = new Set();
+function randName() {
+  for (;;) {
+    const n = pick(SURNAMES) + pick(GIVEN);
+    if (!usedNames.has(n)) { usedNames.add(n); return n; }
+  }
+}
+const randStuNo = () => '202602' + pad2(rint(1, 44));
+
+function makeStudentID(name, no, sex) {
+  return new Passport({
+    country: '城关中学 · ' + OUR_CLASS, name,
+    cover: [50, 72, 122], band: [72, 96, 148], photoSeed: rint(1, 9999),
+    rows: [['学号', no], ['性别', sex || pick(['男', '女'])]],
+  });
+}
+function makeHomework(o) {
+  const rows = [['班级', o.cls || OUR_CLASS], ['姓名', o.name], ['学号', o.no],
+    ['科目', o.sub || pick(SUBJECTS)], ['日期', o.date || todayStr()], ['签字', o.signed === false ? '未签' : '已签']];
+  return new Card(rows, {
+    title: '作业本', sub: o.printed ? 'LASER PRINT' : 'HOMEWORK',
+    color: o.printed ? [238, 236, 230] : [226, 202, 158], colorD: o.printed ? [210, 206, 198] : [198, 170, 122],
+    seal: false, valueX: 44, printed: !!o.printed, forged: !!o.forged,
+  });
+}
+
+// —— 矛盾模板 ——
+const REGION_ISSUE = (cls, ask) => ({ pairs: [['hw.班级', 'rule.region'], ['st.header', 'rule.region']], title: '非本班作业', sub: `封面班级：${cls}`, ask });
+const ID_ISSUE = (ask) => ({ pairs: [['st.学号', 'hw.学号'], ['st.姓名', 'hw.学号'], ['st.姓名', 'hw.姓名']], title: '信息不符 DISCREPANCY', sub: '学生证与作业本对不上', ask });
+const DATE_ISSUE = (d, ask) => ({ pairs: [['hw.日期', 'rule.info'], ['st.姓名', 'hw.日期']], title: '日期不符 DISCREPANCY', sub: `作业日期：${d}`, ask });
+const PRINTED_ISSUE = { pairs: [['hw.科目', 'rule.real'], ['hw.签字', 'rule.real']], title: '代写嫌疑', sub: '正文为打印体，疑似网购代写',
+  ask: [['C', '这作业怎么是打印的？'], ['E', '……我练字练得太工整了。', { expr: 'nervous', sweat: true }]] };
+const COPY_ISSUE = { pairs: [['hw.页数', 'rule.real'], ['hw.姓名', 'rule.real']], title: '抄袭实锤', sub: '错题与上一位交的一模一样（含错别字）',
+  ask: [['C', '连错别字都一样？'], ['E', '……英雄所见略同？', { expr: 'grin', sweat: true }]] };
+const OLD_ISSUE = (d) => ({ pairs: [['hw.日期', 'rule.real']], title: '旧作业充数', sub: `日期：${d}，上周的`,
+  ask: [['C', '这是上周的作业。'], ['E', '……你不记得了吗？补交也算交吧？', { expr: 'nervous', sweat: true }]] });
+const SIGN_ISSUE = { pairs: [['hw.签字', 'rule.real'], ['st.姓名', 'hw.签字']], title: '签字可疑', sub: '家长签字笔迹稚嫩，像自己签的',
+  ask: [['C', '这是你爸签的？'], ['E', '……我爸写字就这样！', { expr: 'nervous', sweat: true }]] };
+const TELL = (say, sub, ask) => ({ say, title: '可疑：话里有破绽', sub, ask });
+const RANDOM_TELLS = [
+  ['我写到十二点呢。', '可作业日期是三天前',
+    [['C', '写到十二点？这本是前天的。'], ['E', '……啊？那我再看看。', { expr: 'nervous', sweat: true }]]],
+  ['我抄…我是说我参考了资料。', '口误：把“抄”说漏了',
+    [['C', '参考的是哪本资料？'], ['E', '……反正不是同学的。', { expr: 'nervous', sweat: true }]]],
+  ['我哥也做过这本练习册。', '答案来源存疑',
+    [['C', '你哥做的，还是你做的？'], ['E', '……他的错题笔记借我“参考”了一下。', { expr: 'grin', sweat: true }]]],
+  ['打印店老板手艺真好。', '作业是打印的还夸上了',
+    [['C', '打印店？'], ['E', '……说漏了。手写的，全是手写的。', { expr: 'nervous', sweat: true }]]],
+];
+
+// ══════════════ 6. 每日队列 ══════════════
+
+function cleanStudent() {
+  const name = randName(), no = randStuNo();
+  return {
+    voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
+    hello: pick(['老师好。', '作业写完了，老师。', '老师，交作业。']),
+    thanks: pick(['谢谢老师！', '耶！']),
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no }) }],
+    primary: 'hw', ok: ['approve'],
+    intro: [['E', '老师好。']],
+    issues: [],
+  };
+}
+function otherClassStudent(fixedHello, fixedCls) {
+  const cls = fixedCls || pick(OTHER_CLASSES), name = randName();
+  return {
+    voice: 115 + rint(-15, 30), photoSeed: rint(1, 9999),
+    hello: fixedHello || pick(['老师，我们班作业交这儿吗？', '老师好，交作业。']),
+    thanks: '……好吧。',
+    docs: [{ key: 'hw', doc: makeHomework({ name, cls, no: '202603' + pad2(rint(1, 40)) }) }],
+    primary: 'hw', ok: ['deny'], reason: `非本班作业（${cls}）`,
+    intro: [['E', fixedHello || '老师，交作业。']],
+    issues: [REGION_ISSUE(cls, [['C', `这是${cls}的作业。`], ['E', '……交错队伍了？', { expr: 'shock' }]])],
+    react: { deny: [['E', pick(['那我拿回我们班去。', '3 班不也是年级的吗……']), { expr: 'sad' }]] },
+  };
+}
+function idMismatchStudent() {
+  const name = randName(), no = randStuNo(), other = '202602' + pad2(rint(45, 66));
+  return {
+    voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
+    hello: '老师，作业。', thanks: '……下次我注意。',
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no: other }) }],
+    primary: 'hw', ok: ['deny'], reason: '学号与本人不符',
+    intro: [['E', '老师，交作业。']],
+    issues: [ID_ISSUE([['C', '作业本学号怎么不是你的？'], ['E', '……写快了，顺手写的同桌的。', { expr: 'nervous', sweat: true }]])],
+    react: { deny: [['E', '学号而已嘛……好吧。', { expr: 'sad' }]] },
+  };
+}
+function dateIssueStudent() {
+  const name = randName(), no = randStuNo();
+  const d = `2026.10.${pad2(19 + S.day)}`;   // 明天的日期：未卜先知
+  return {
+    voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
+    hello: '老师，作业提前写完了！', thanks: '……啊这。',
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, date: d }) }],
+    primary: 'hw', ok: ['deny'], reason: '作业日期超前',
+    intro: [['E', '老师，我连明天的都写完了！']],
+    issues: [DATE_ISSUE(d + '（明天？）', [['C', '这是明天的日期。'], ['E', '……我预知了。', { expr: 'grin', sweat: true }]])],
+    react: { deny: [['E', '提前写也有错吗……', { expr: 'sad' }]] },
+  };
+}
+function printedStudent() {
+  const name = randName(), no = randStuNo();
+  return {
+    voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
+    hello: '老师，这次我用新方法写的。', thanks: '……重写就重写。',
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, printed: true }) }],
+    primary: 'hw', ok: ['deny'], reason: '作业疑似代写（打印体）',
+    intro: [['E', '老师，这次我特别认真写的。']],
+    issues: [PRINTED_ISSUE],
+    react: { deny: [['E', '打印店老板还夸我字好呢……', { expr: 'sad' }]] },
+  };
+}
+function copyStudent() {
+  const name = randName(), no = randStuNo();
+  return {
+    voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
+    hello: '老师，我和同桌错得一样很正常吧？', thanks: '……',
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no }) }],
+    primary: 'hw', ok: ['deny'], reason: '作业抄袭雷同',
+    intro: [['E', '老师，先说好，错题一样不算抄吧？']],
+    issues: [COPY_ISSUE],
+    react: { deny: [['E', '连错别字都一样还不算……', { expr: 'sad' }]] },
+  };
+}
+function oldHwStudent() {
+  const name = randName(), no = randStuNo();
+  return {
+    voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
+    hello: '老师，补交的，上周忘带了。', thanks: '……哦。',
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, date: '2026.10.12' }) }],
+    primary: 'hw', ok: ['deny'], reason: '旧作业充数',
+    intro: [['E', '老师，上周那本找到了，补交！']],
+    issues: [OLD_ISSUE('2026.10.12')],
+    react: { deny: [['E', '补交不算数吗……', { expr: 'sad' }]] },
+  };
+}
+function forgedSignStudent() {
+  const name = randName(), no = randStuNo();
+  return {
+    voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
+    hello: '老师，签字在这儿。', thanks: '……被看出来了？',
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, forged: true }) }],
+    primary: 'hw', ok: ['deny'], reason: '家长签字伪造',
+    intro: [['E', '老师，我爸签完就出差了。']],
+    issues: [SIGN_ISSUE],
+    react: { deny: [['E', '……好吧，是我自己描的。', { expr: 'sad' }]] },
+  };
+}
+function tellStudent() {
+  const e = cleanStudent();
+  const t = pick(RANDOM_TELLS);
+  const line = t[0];
+  e.hello = line;
+  e.tell = TELL(line, t[1], t[2]);
+  e.ok = ['detain']; e.reason = '抽背露馅：作业非本人独立完成';
+  e.intro = [['E', line]];
+  e.issues = [];
+  return e;
+}
+
+function buildQueue(day) {
+  const q = [];
+  if (day === 1) {
+    q.push(otherClassStudent('老师，这是帮 3 班同学捎的，他病了。', '初三(3)班'));
+    q.push(otherClassStudent('我们班老师不管作业，我来你这交。'));
+    q.push(cleanStudent());
+    q.push(cleanStudent());
+  } else if (day === 2) {
+    q.push(cleanStudent());
+    q.push(idMismatchStudent());
+    q.push(tellStudent());
+    q.push(dateIssueStudent());
+    q.push(Math.random() < 0.5 ? otherClassStudent() : cleanStudent());
+  } else {
+    q.push(printedStudent());
+    q.push(forgedSignStudent());
+    q.push(oldHwStudent());
+    q.push(cleanStudent());
+    q.push(tellStudent());
+    q.push(copyStudent());
+  }
+  if (day > 1) { const rest = shuffle(q.slice(1)); rest.forEach((sn, i) => { q[i + 1] = sn; }); }
+  return q;
+}
+
+// ══════════════ 7. 全局状态 ══════════════
+let canvasEl, F, now = 0;
+const S = { day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {} };
+let B = null;
+const ptr = { x: 320, y: 180, mouse: false, down: false };
+let drag = null;
+let scene = 'boot', sceneT0 = 0;
+const st = () => now - sceneT0;
+function saveGame() { try { localStorage.setItem('ipc_save', JSON.stringify({ day: S.day, pay: S.pay, cites: S.cites })); } catch (e) {} }
+function loadGame() { try { const d = JSON.parse(localStorage.getItem('ipc_save')); if (d && d.day) Object.assign(S, d); } catch (e) {} }
+function clearSave() { try { localStorage.removeItem('ipc_save'); } catch (e) {} }
+
+// ══════════════ 8. 检查台布局 ══════════════
+const WIN = [8, 134, 210, 262], WIN_W = 203, WIN_H = 129, WIN_CX = 101;
+const SPEAKER = [6, 290, 24, 306];
+const DETAIN_BTN = [172, 268, 212, 280];
+const QUIZ_BTN = [126, 268, 166, 280];
+const INSPECT_BTN = [602, 322, 634, 354];
+const RULE_BTN = [530, 322, 562, 354];
+const ASK_BTN = [548, 140, 590, 162];
+const BANNER_BOX = [300, 134, 598, 170];
+const TRAY_Y0 = 196, TRAY_Y1 = 252, TRAY_W = 170, TRAY_X = W - TRAY_W;
+const MARK_XY = { approve: [483, 220], deny: [562, 220] };
+const QUEUE_FRONT = [292, 102];
+const BOOK_BOX = [500, 306, 556, 359];
+const DESK = [220, 128, W - 1, H - 1];
+const DESK_ARRIVE = [252, 140];
+
+function startDay() {
+  B = {
+    queue: buildQueue(S.day), idx: 0, ent: null, docs: [], lines: [], timers: [],
+    tray: { open: false, t: -9 }, presses: [],
+    insp: { on: false, sel: [], banner: null },
+    ruleInst: null, ruleOpened: false, speakerT: -9,
+    pay: 5, correct: 0, total: 0, flash: null,
+    ending: false, lastFinish: now,
+  };
+}
+function later(dt, fn) { B.timers.push({ t: now + dt, fn }); }
+function runTimers() {
+  const due = B.timers.filter((x) => x.t <= now);
+  if (!due.length) return;
+  B.timers = B.timers.filter((x) => x.t > now);
+  due.sort((a, b) => a.t - b.t).forEach((x) => x.fn());
+}
+function say(who, text) {
+  const e = B.ent;
+  B.lines.push({ t: now, who, text, ent: e });
+  const pitch = who === 'C' ? 176 : (e ? e.spec.voice : 125);
+  SFX.mumble(text, pitch, B.lines.length * 7 + S.day);
+  if (who === 'E' && e) e.talkUntil = now + Math.min(1.3, 0.25 + 0.065 * [...text].length);
+}
+function runSteps(steps, delay = 0) {
+  let t = delay;
+  const e = B.ent;
+  for (const s0 of steps || []) {
+    let who, text, o;
+    if (Array.isArray(s0)) [who, text, o] = s0; else o = s0;
+    o = o || {};
+    later(t, () => {
+      if (!B || B.ent !== e) return;
+      if (e) {
+        if (o.expr) e.expr = o.expr;
+        if (o.sweat && e.sweatT === null) e.sweatT = now;
+        if (o.slip) { e.slip = true; e.expr = 'shock'; }
+      }
+      if (text) say(who, text);
+    });
+    const len = text ? [...text].length : 0;
+    t += o.hold !== undefined ? o.hold : Math.max(0.9, 0.4 + 0.085 * len);
+  }
+  if (e) e.busyUntil = Math.max(e.busyUntil || 0, now + t);
+  return t;
+}
+function newEntrant(spec) {
+  return {
+    spec, tEnter: now + 0.35, phase: 'enter',
+    expr: 'neutral', talkUntil: 0, sweatT: null, slip: false, busyUntil: 0,
+    decided: null, asked: new Set(), found: new Set(), docs: [], suspect: false, tLeave: 0, tDetain: 0,
+  };
+}
+const nextItem = () => B.queue[B.idx];
+
+function callNext() {
+  SFX.play('click');
+  if (!B || B.ent || B.ending || B.idx >= B.queue.length) return;
+  B.speakerT = now;
+  SFX.play('intercom');
+  say('C', '下一位！');
+  const spec = B.queue[B.idx++];
+  const e = newEntrant(spec);
+  B.ent = e;
+  for (let i = 0; i < 4; i++) later(0.41 + i * 0.19, () => SFX.play('step'));
+  later(1.15, () => {
+    if (!B || B.ent !== e) return;
+    e.phase = 'here';
+    const t = runSteps(spec.intro);
+    later(t + 0.4, () => handDocs(e));
+  });
+}
+function handDocs(e) {
+  if (!B || B.ent !== e) return;
+  SFX.play('paper');
+  let i = 0;
+  for (const { key, doc } of e.spec.docs) {
+    const d = { key, doc, owner: 'ent', x: DESK_ARRIVE[0] + i * 12, y: DESK_ARRIVE[1] + i * 6, big: true, stamp: null, returned: false };
+    e.docs.push(d); B.docs.push(d);
+    later(0.12 * i, () => SFX.play('paper', 0.6));
+    i++;
+  }
+  e.handed = true;
+  if (!B.ruleInst) { B.ruleInst = { key: 'rule', doc: new Rulebook(S.day), owner: 'me', x: 470, y: 300, big: false, stamp: null }; B.docs.push(B.ruleInst); }
+  if (e.spec.after) runSteps(e.spec.after);
+}
+
+function docBox(d) { return [d.x, d.y, d.x + d.doc.w - 1, y2(d) - 1]; }
+function y2(d) { return d.big ? d.y + d.doc.h : d.y + 12; }
+function boxOf(d) { return d.big ? docBox(d) : [d.x, d.y, d.x + 18, d.y + 12]; }
+
+function checkLeave() {
+  const e = B.ent;
+  if (!e) return;
+  const remaining = e.docs.filter((d) => !d.returned);
+  if (remaining.length) return;
+  leave(e);
+}
+function decisionOf(e) {
+  const pd = e.docs.find((d) => d.key === e.spec.primary);
+  if (e.detained) return 'detain';
+  if (!pd || !pd.stamp) return null;
+  return pd.stamp.kind;
+}
+function leave(e) {
+  e.phase = 'leave';
+  e.tLeave = now;
+  const dec = decisionOf(e);
+  const ok = e.spec.ok;
+  const good = dec && ok.includes(dec);
+  B.total++; S.total++;
+  if (good) { B.correct++; S.correct++; SFX.play('coin'); flashMsg(pick(['批完了。', '下一位。', '合格。'])); }
+  else {
+    S.cites++; B.pay = Math.max(0, B.pay - 2);
+    const why = e.spec.reason || '违反规则';
+    printCitation([`误判 / 漏检`, `理由：${why}`, `扣 2 分绩效，全校通报`]);
+    SFX.play('stamp_no');
+  }
+  if (e.spec.react && e.spec.react[dec]) runSteps(e.spec.react[dec]);
+  else if (dec === 'approve' && e.spec.thanks) say('E', e.spec.thanks);
+  later(1.4, () => { if (B) { B.docs = B.docs.filter((d) => d.owner !== 'ent'); B.ent = null; B.lastFinish = now; B.lines = []; } });
+  later(1.6, () => { if (B && !B.ent && B.idx >= B.queue.length && !B.ending) { B.ending = true; later(0.8, () => go('summary')); } });
+}
+function printCitation(lines) {
+  const c = { key: 'cite', doc: new Citation(lines), owner: 'cite', x: 250, y: 150, big: true, stamp: null };
+  B.docs.push(c);
+  SFX.play('whoosh');
+  flashMsg('家校联系单已开');
+}
+function flashMsg(s) { B.flash = { s, t0: now }; }
+
+function stampBtnBox(kind, tx) {
+  return kind === 'approve' ? [tx + 8, TRAY_Y0 + 8, tx + 74, TRAY_Y1 - 8] : [tx + 88, TRAY_Y0 + 8, tx + 154, TRAY_Y1 - 8];
+}
+function stamp(kind) {
+  const e = B.ent;
+  if (!e || e.phase !== 'here' && e.phase !== 'waiting') return;
+  const pd = e.docs.find((d) => d.key === e.spec.primary);
+  if (!pd || !pd.big) { flashMsg('先在桌上放好主作业，再盖章'); return; }
+  B.tray.t = now;
+  B.presses.push({ kind, t0: now });
+  const [mx, my] = MARK_XY[kind];
+  later(0.18, () => {
+    SFX.play(kind === 'approve' ? 'stamp_ok' : 'stamp_no');
+    if (kind === 'deny') B.shake = now;
+    if (pd) pd.stamp = { kind, dx: Math.min(pd.doc.w - 44, Math.max(4, mx - pd.x - 20)), dy: Math.min(pd.doc.h - 44, Math.max(4, my - pd.y - 20)) };
+  });
+}
+function detain() {
+  const e = B.ent;
+  if (!e || e.phase !== 'here') return;
+  if (S.day < 2) return;
+  e.detained = true;
+  e.expr = 'shock';
+  say('C', '叫你家长明天来一趟。');
+  SFX.play('stamp_no');
+  const remaining = e.docs.filter((d) => !d.returned);
+  remaining.forEach((d, i) => later(0.15 * i, () => { d.returned = true; SFX.play('paper'); }));
+  e.docs.forEach((d) => { d.returned = true; });
+  leave(e);
+}
+
+// 印章托盘横坐标：唯一来源（绘制与点击共用，禁止各自再算）
+function trayX() {
+  const u = seg(now, B.tray.t, B.tray.t + 0.25);
+  return B.tray.open ? TRAY_X - Math.round((1 - u) * (TRAY_W - 14)) : W - 14;
+}
+
+// —— 检查模式 ——
+function lineBoxes() {
+  return B.lines.slice(-3).map((ln, i) => {
+    const size = tw(ln.text, 12) > 176 ? 10 : 12;
+    const y = 288 + i * 17;
+    return { ln, size, box: [30, y, 30 + tw('学生：', size) + tw(ln.text, size) + 10, y + 15] };
+  });
+}
+function fieldAt(x, y) {
+  const e = B.ent;
+  if (e && e.handed) {
+    for (const { ln, box } of lineBoxes()) {
+      if (ln.who === 'E' && ln.ent === e && inBox(x, y, box)) return { key: 'say', ln, box: () => box };
+    }
+  }
+  for (const d of [...B.docs].reverse()) {
+    if (!d.big || d.owner === 'cite' || !inBox(x, y, docBox(d)) || !inBox(x, y, DESK)) continue;
+    let best = null;
+    for (const [name, f] of Object.entries(d.doc.fields)) {
+      const b = [d.x + f[0] - 1, d.y + f[1] - 1, d.x + f[2] + 1, d.y + f[3] + 1];
+      if (inBox(x, y, b)) best = { key: `${d.key}.${name}`, d, box: () => [d.x + f[0], d.y + f[1], d.x + f[2], d.y + f[3]] };
+    }
+    return best || { d, key: null };
+  }
+  return null;
+}
+function setInspect(on) {
+  B.insp = { on, sel: [], banner: null };
+  SFX.play(on ? 'select' : 'click');
+  if (on) S.tut.inspect = true;
+}
+function matchIssue(keys) {
+  const e = B.ent;
+  if (!e || !e.handed) return null;
+  for (const is of e.spec.issues) {
+    for (const p of is.pairs) {
+      if (p.length !== keys.length) continue;
+      if (p.length === 1 ? p[0] === keys[0] : (p[0] === keys[0] && p[1] === keys[1]) || (p[0] === keys[1] && p[1] === keys[0])) return is;
+    }
+  }
+  return null;
+}
+function showIssue(issue) {
+  const e = B.ent, I = B.insp;
+  I.banner = { title: issue.title, sub: issue.sub, issue, ask: issue.ask && !e.asked.has(issue) && e.phase === 'here', bad: true };
+  e.suspect = true;
+  SFX.play('discrepancy');
+  e.found.add(issue);
+}
+function inspectClick(x, y) {
+  const I = B.insp;
+  if (I.banner && I.banner.ask && inBox(x, y, ASK_BTN)) {
+    const issue = I.banner.issue;
+    if (!B.ent || B.ent.phase !== 'here') { setInspect(false); return; }
+    B.ent.asked.add(issue);
+    I.banner = null;
+    setInspect(false);
+    runSteps(issue.ask, 0.15);
+    return;
+  }
+  const hit = fieldAt(x, y);
+  // 规则书只有点右上角「翻页」区才翻页，其余区域照常选栏位
+  if (hit && hit.d && hit.d.key === 'rule' && hit.d.big) {
+    const d = hit.d, tabX = d.x + d.doc.w - 56;
+    if (x >= tabX && y <= d.y + 16) { d.doc.flip(); SFX.play('paper', 0.7); I.sel = I.sel.filter((s) => s.d !== d); return; }
+  }
+  if (I.banner) { I.banner = null; I.sel = []; }
+  if (!hit || !hit.key) return;
+  if (hit.key === 'say') {
+    I.sel = [hit];
+    SFX.play('select');
+    const tell = B.ent.spec.tell;
+    if (tell && hit.ln.text === tell.say) { showIssue(tell); }
+    else I.banner = { title: '这句话没什么问题', sub: '换一句听听，或者去查作业', bad: false };
+    return;
+  }
+  if (I.sel.some((s) => s.key === 'say')) I.sel = [];
+  const k = I.sel.findIndex((s) => s.key === hit.key);
+  if (k >= 0) { I.sel.splice(k, 1); return; }
+  I.sel.push(hit);
+  SFX.play('select');
+  if (I.sel.length === 1) {
+    const single = matchIssue([hit.key]);
+    if (single) { showIssue(single); return; }
+  }
+  if (I.sel.length < 2) return;
+  const issue = matchIssue(I.sel.map((s) => s.key));
+  if (issue) showIssue(issue);
+  else I.banner = { title: '没有发现不符', sub: '这两项对得上（或者不相关）', bad: false };
+}
+
+// —— 抽背 ——
+function quiz() {
+  const e = B.ent;
+  if (!e || e.phase !== 'here' || !e.suspect) { flashMsg('得先有疑点，才能抽背'); return; }
+  const faker = e.tell || e.spec.ok.includes('detain');
+  const q = pick(QUIZ);
+  say('C', q[0]);
+  later(1.6, () => {
+    if (!B || B.ent !== e) return;
+    if (faker) {
+      e.slip = true; e.expr = 'nervous'; e.sweatT = e.sweatT === null ? now : e.sweatT;
+      say('E', pick(QUIZ_CONFUSED));
+      SFX.play('slip');
+      flashMsg('背不出来！按「请家长」');
+    } else {
+      say('E', q[1]);
+      later(1.4, () => { if (B && B.ent === e) say('C', '嗯，背得不错。'); });
+    }
+  });
+}
+
+// ══════════════ 9. 输入 ══════════════
+function toGame(ev) {
+  const r = canvasEl.getBoundingClientRect();
+  return [Math.floor((ev.clientX - r.left) * W / r.width), Math.floor((ev.clientY - r.top) * H / r.height)];
+}
+function onDown(ev) {
+  SFX.init();
+  const [x, y] = toGame(ev);
+  Object.assign(ptr, { x, y, down: true, mouse: ev.pointerType === 'mouse' });
+  if (canvasEl.setPointerCapture) try { canvasEl.setPointerCapture(ev.pointerId); } catch (e) {}
+  ev.preventDefault();
+  if (scene === 'booth') boothInput(x, y);
+  else sceneClick(x, y);
+}
+function onMove(ev) {
+  const [x, y] = toGame(ev);
+  Object.assign(ptr, { x, y, mouse: ev.pointerType === 'mouse' });
+  if (drag) dragMove(x, y);
+}
+function onUp(ev) {
+  const [x, y] = toGame(ev);
+  Object.assign(ptr, { x, y, down: false });
+  if (drag) dragEnd(x, y);
+}
+function boothInput(x, y) {
+  if (B.ending) return;
+  if (inBox(x, y, INSPECT_BTN)) return setInspect(!B.insp.on);
+  if (B.insp.on) return inspectClick(x, y);
+  const tx = trayX();
+  if (inBox(x, y, [tx - 14, 204, tx + 4, 244])) { B.tray.open = !B.tray.open; B.tray.t = now; SFX.play('paper', 0.5); return; }
+  if (B.tray.open && now - B.tray.t > 0.4) {
+    for (const kind of ['approve', 'deny']) if (inBox(x, y, stampBtnBox(kind, tx))) return stamp(kind);
+  }
+  if (inBox(x, y, [tx, TRAY_Y0, W - 1, TRAY_Y1])) return;
+  if (inBox(x, y, INSPECT_BTN)) return setInspect(true);
+  if (inBox(x, y, BOOK_BOX) && B.ruleInst) {
+    if (!B.ruleInst.big) { B.ruleInst.big = true; B.ruleInst.x = 300; B.ruleInst.y = 232; B.ruleOpened = true; }
+    else { B.ruleInst.big = false; B.ruleInst.x = 502; B.ruleInst.y = 316; }
+    SFX.play('paper'); return;
+  }
+  if (inBox(x, y, SPEAKER)) return callNext();
+  if (S.day >= 2 && inBox(x, y, DETAIN_BTN)) return detain();
+  if (S.day >= 2 && inBox(x, y, QUIZ_BTN)) return quiz();
+  for (const d of [...B.docs].reverse()) {
+    const box = boxOf(d);
+    if (d.big && !inBox(x, y, DESK)) continue;
+    if (inBox(x, y, box)) return dragStart(d, x, y);
+  }
+}
+function dragStart(d, x, y) {
+  if (d.owner === 'cite') return;
+  B.docs = B.docs.filter((o) => o !== d).concat([d]);
+  drag = { d, startedBig: d.big, off: [x - d.x, y - d.y], prev: { big: d.big, x: d.x, y: d.y }, start: [x, y], moved: false };
+  SFX.play('paper', 0.7);
+}
+function dragMove(x, y) {
+  const d = drag.d;
+  if (Math.hypot(x - drag.start[0], y - drag.start[1]) > 3) drag.moved = true;
+  if (!drag.moved) return;
+  if (x < DESK[0]) { d.big = false; d.x = x - 9; d.y = y - 6; return; }
+  d.big = true;
+  const g = drag.startedBig ? drag.off : [Math.min(30, d.doc.w / 2), 14];
+  d.x = Math.max(DESK[0] - g[0], Math.min(W - 40, x - g[0]));
+  d.y = Math.max(DESK[1] - 10, Math.min(H - 30, y - g[1]));
+}
+function dragEnd(x, y) {
+  const d = drag.d, prev = drag.prev, moved = drag.moved;
+  drag = null;
+  if (!moved) {
+    if (d.key === 'rule' && d.big) { d.doc.flip(); SFX.play('paper', 0.7); }
+    return;
+  }
+  if (d.big) { SFX.play('paper', x); return; }
+  if (d.key === 'rule') { d.big = false; d.x = 502; d.y = 316; SFX.play('paper'); return; }
+  const e = B.ent;
+  if (!e || (e.phase !== 'here')) { Object.assign(d, prev); return; }
+  if (d.key === e.spec.primary && !decisionOf(e)) {
+    Object.assign(d, prev);
+    flashMsg('先在主作业上盖章（右侧拉出印章栏），再还给学生');
+    return;
+  }
+  B.docs = B.docs.filter((o) => o !== d);
+  d.returned = true;
+  SFX.play('paper', 7);
+  checkLeave();
+}
+function sceneClick(x, y) {
+  if (scene === 'boot') { go('title'); return; }
+  if (scene === 'title') { titleClick(x, y); return; }
+  if (scene === 'news' && st() > 0.6) { go('booth'); return; }
+  if (scene === 'summary') { if (st() > 0.8) go('daycard'); return; }
+  if ((scene === 'end' || scene === 'over') && st() > 1.2) {
+    const r = restartBtn();
+    if (inBox(x, y, r)) { clearSave(); S.day = 1; S.pay = 0; S.cites = 0; S.correct = 0; S.total = 0; go('daycard'); }
+  }
+}
+
+// ══════════════ 10. 渲染：人物与场景 ══════════════
+function entrantX(e) {
+  if (!e || now < e.tEnter) return null;
+  let x = WIN_CX;
+  if (now < e.tEnter + 0.8) x = Math.floor(lerp(-130, WIN_CX, easeOut(seg(now, e.tEnter, e.tEnter + 0.8))) / 2) * 2;
+  if (e.phase === 'leave') {
+    const u = seg(now, e.tLeave, e.tLeave + 0.65);
+    if (u >= 1) return null;
+    return Math.floor(lerp(WIN_CX, -160, u * u) / 2) * 2;
+  }
+  return x;
+}
+const SKINS = ['rgb(198,152,120)', 'rgb(168,120,92)', 'rgb(222,180,150)'];
+const COATS = ['rgb(70,90,120)', 'rgb(110,80,60)', 'rgb(70,100,80)', 'rgb(120,70,60)', 'rgb(80,80,90)'];
+const HAIRC = ['rgb(40,32,28)', 'rgb(90,60,36)', 'rgb(150,110,60)', 'rgb(70,70,74)'];
+function drawEntrant(e, ex) {
+  if (ex === null) return;
+  const sd = e.spec.photoSeed || 1;
+  const skin = SKINS[sd % SKINS.length], coat = 'rgb(72,96,150)', hair = HAIRC[(sd >> 4) % HAIRC.length];
+  const baseY = 262, bounce = e.phase === 'enter' ? Math.round(Math.sin(now * 14)) : 0;
+  const cx = ex, by = baseY - bounce;
+  // 身体
+  rect(cx - 22, by - 52, cx + 21, by, coat);
+  rect(cx - 22, by - 52, cx + 21, by - 50, shade(coat, 0.8));
+  rect(cx - 6, by - 52, cx + 5, by - 46, K.PAPER);   // 校服白领
+  rect(cx - 5, by - 58, cx + 4, by - 50, skin); // 脖子
+  // 头
+  rect(cx - 13, by - 86, cx + 12, by - 58, skin);
+  // 头发
+  rect(cx - 14, by - 90, cx + 13, by - 80, hair);
+  if (sd % 3 === 0) rect(cx - 14, by - 80, cx - 12, by - 70, hair);
+  // 表情
+  let ex2 = e.expr;
+  if (ex2 !== 'shock' && now < e.talkUntil && Math.floor(now * 8) % 2 === 0) ex2 = 'talk';
+  drawFace(cx, by - 74, ex2, e.slip);
+  // 汗滴
+  if (e.sweatT !== null && now - e.sweatT < 3.4) {
+    const u = (now * 2) % 1;
+    G.fillStyle = 'rgb(156,186,204)';
+    G.fillRect(cx + 12, by - 88 + Math.floor(u * 8), 2, 3);
+  }
+  // 窗台遮住下半身
+  rect(WIN[0], WIN[3] - 8, WIN[2], WIN[3], K.COUNTER);
+  rect(WIN[0], WIN[3] - 8, WIN[2], WIN[3] - 7, shade(C.COUNTER, 1.2));
+}
+function shade(col, k) {
+  if (Array.isArray(col)) return rgb3(col.map((v) => Math.max(0, Math.min(255, Math.round(v * k)))));
+  const m = String(col).match(/(\d+),(\d+),(\d+)/);
+  if (!m) return col;
+  const f = (v) => Math.max(0, Math.min(255, Math.round(parseInt(v) * k)));
+  return `rgb(${f(m[1])},${f(m[2])},${f(m[3])})`;
+}
+function drawFace(cx, fy, ex, slip) {
+  const E = K.INK;
+  if (ex === 'shock') {
+    outline(cx - 9, fy - 4, cx - 5, fy, E); outline(cx + 4, fy - 4, cx + 8, fy, E);
+    outline(cx - 3, fy + 8, cx + 2, fy + 13, E);
+  } else if (ex === 'talk') {
+    pt(cx - 7, fy - 2, E); pt(cx + 6, fy - 2, E);
+    rect(cx - 3, fy + 8, cx + 2, fy + 11, E);
+  } else if (ex === 'nervous') {
+    line(cx - 9, fy - 3, cx - 5, fy - 1, E); line(cx + 5, fy - 1, cx + 9, fy - 3, E);
+    line(cx - 4, fy + 10, cx - 1, fy + 9, E); line(cx - 1, fy + 9, cx + 1, fy + 10, E); line(cx + 1, fy + 10, cx + 4, fy + 9, E);
+  } else if (ex === 'sad') {
+    line(cx - 9, fy - 1, cx - 5, fy - 3, E); line(cx + 5, fy - 3, cx + 9, fy - 1, E);
+    line(cx - 4, fy + 11, cx + 3, fy + 11, E);
+  } else if (ex === 'grin') {
+    line(cx - 9, fy - 2, cx - 6, fy - 4, E); line(cx - 6, fy - 4, cx - 4, fy - 2, E);
+    line(cx + 4, fy - 2, cx + 6, fy - 4, E); line(cx + 6, fy - 4, cx + 9, fy - 2, E);
+    rect(cx - 4, fy + 8, cx + 3, fy + 11, E); rect(cx - 4, fy + 7, cx + 3, fy + 7, K.WHITE);
+  } else if (ex === 'smile') {
+    pt(cx - 7, fy - 2, E); pt(cx + 6, fy - 2, E);
+    line(cx - 4, fy + 9, cx - 1, fy + 11, E); line(cx - 1, fy + 11, cx + 3, fy + 9, E);
+  } else if (ex === 'angry') {
+    line(cx - 9, fy - 5, cx - 4, fy - 2, E); line(cx + 4, fy - 2, cx + 9, fy - 5, E);
+    pt(cx - 7, fy - 1, E); pt(cx + 6, fy - 1, E);
+    rect(cx - 3, fy + 9, cx + 2, fy + 10, E);
+  } else { // neutral
+    rect(cx - 8, fy - 3, cx - 6, fy - 2, E); rect(cx + 5, fy - 3, cx + 7, fy - 2, E);
+    rect(cx - 3, fy + 10, cx + 2, fy + 10, E);
+  }
+  if (slip) { // 马脚符号：嘴角抽搐
+    pt(cx + 5, fy + 12, K.RED);
+  }
+}
+function drawClerk() {
+  // 王老师（你）：中景，坐在桌后
+  const cx = 312, top = 96;
+  rect(cx - 18, top + 26, cx + 17, 128, 'rgb(60,66,84)');      // 制服
+  rect(cx - 4, top + 20, cx + 3, top + 28, K.SKIN);             // 脖子
+  rect(cx - 12, top, cx + 11, top + 22, K.SKIN);                // 头
+  rect(cx - 13, top - 4, cx + 12, top + 6, 'rgb(50,46,44)');    // 帽
+  rect(cx + 12, top + 2, cx + 16, top + 12, 'rgb(40,40,40)');   // 耳机
+  rect(cx - 3, top + 8, cx - 1, top + 14, 'rgb(40,40,40)');
+  rect(cx - 8, top + 9, cx - 6, top + 10, K.INK); rect(cx + 5, top + 9, cx + 7, top + 10, K.INK);
+  outline(cx - 10, top + 7, cx - 4, top + 11, K.INK); outline(cx + 3, top + 7, cx + 9, top + 11, K.INK);
+  rect(cx - 4, top + 9, cx + 3, top + 9, K.INK);
+  rect(cx - 3, top + 16, cx + 2, top + 16, K.INK);
+  rect(cx - 1, top + 26, cx + 0, top + 34, K.CLAUDE);           // 毛衣
+  rect(cx - 20, top + 30, cx - 16, top + 40, K.SKIN);           // 手
+  rect(352, 336, 362, 352, 'rgb(150,150,158)');                  // 保温杯
+  rect(354, 338, 360, 350, 'rgb(120,160,200)');
+}
+
+function drawBoothBg() {
+  rect(0, 0, W - 1, H - 1, K.WALL);
+  // 窗外：黄昏天空 + 排队的人
+  rect(WIN[0] - 6, 96, WIN[2] + 6, WIN[1] - 1, 'rgb(64,58,60)');
+  rect(WIN[0], 100, WIN[2], WIN[1] - 2, 'rgb(120,90,86)');
+  rect(WIN[0], 112, WIN[2], WIN[1] - 2, 'rgb(150,104,84)');
+  // 远处队伍
+  const qn = Math.min(4, B.queue.length - B.idx + (B.ent ? 1 : 0));
+  for (let i = 0; i < qn; i++) {
+    const qx = 30 + ((i * 34 + Math.floor(now * 6)) % 150), qy = 118 + (i % 2);
+    rect(qx - 2, qy - 8, qx + 2, qy, 'rgb(58,48,50)');
+    rect(qx - 1, qy - 10, qx + 1, qy - 8, 'rgb(58,48,50)');
+  }
+  // 窗框
+  rect(WIN[0] - 6, WIN[1] - 6, WIN[2] + 6, WIN[1], K.COUNTER);
+  rect(WIN[0] - 6, WIN[1], WIN[0] - 1, WIN[3], K.COUNTER);
+  rect(WIN[2] + 1, WIN[1], WIN[2] + 6, WIN[3], K.COUNTER);
+  rect(WIN[0] - 6, WIN[3] + 1, WIN[2] + 6, WIN[3] + 6, K.COUNTER);
+  outline(WIN[0] - 6, 96, WIN[2] + 6, WIN[3] + 6, K.OUTLINE);
+  // 窗内背景
+  rect(WIN[0], WIN[1], WIN[2], WIN[3], 'rgb(88,78,72)');
+  for (let x = WIN[0]; x < WIN[2]; x += 16) rect(x, WIN[1], x, WIN[3], shade('rgb(88,78,72)', 0.94));
+  // 桌面
+  rect(DESK[0], DESK[1], W - 1, H - 1, K.DESK);
+  for (let y = DESK[1] + 8; y < H; y += 22) rect(DESK[0], y, W - 1, y, K.DESK_D);
+  rect(DESK[0], DESK[1], DESK[0], H - 1, K.DESK_L);
+  rect(DESK[0], DESK[1], W - 1, DESK[1] + 2, K.DESK_L);
+  // 左下地面
+  rect(0, WIN[3] + 7, DESK[0] - 1, H - 1, K.GROUND_D);
+  // 对讲机
+  rect(SPEAKER[0], SPEAKER[1], SPEAKER[2], SPEAKER[3], K.METAL_D || 'rgb(92,90,86)');
+  rect(SPEAKER[0] + 2, SPEAKER[1] + 2, SPEAKER[2] - 2, SPEAKER[3] - 2, 'rgb(60,58,56)');
+  for (let i = 0; i < 4; i++) rect(SPEAKER[0] + 4 + i * 4, SPEAKER[1] + 5, SPEAKER[0] + 5 + i * 4, SPEAKER[3] - 5, 'rgb(40,38,36)');
+  // 按钮
+  if (S.day >= 2) {
+    drawBtn(QUIZ_BTN, '抽背', B.ent && B.ent.suspect);
+    drawBtn(DETAIN_BTN, '请家长', B.ent && B.ent.suspect);
+  }
+  drawBtn(RULE_BTN, '班规');
+  drawBtn(INSPECT_BTN, B.insp.on ? '退出' : '?检查', B.insp.on);
+  // 班规书图标（合上时）
+  if (B.ruleInst && !B.ruleInst.big) smallIcon('book', C.BOOK, 502, 316);
+  else smallIcon('book', C.BOOK, BOOK_BOX[0] + 3, BOOK_BOX[1] + 12);
+  // 时钟与钱
+  txt(560, 118, `${todayStr()} ${WEEKDAYS[S.day]}`, 8, K.GREY, 'ra');
+  txt(634, 16, `${B.pay} 分`, 12, K.ORANGE, 'ra');
+}
+function drawBtn(b, label, hot) {
+  rect(b[0], b[1], b[2], b[3], hot ? K.CLAUDE : 'rgb(52,48,44)');
+  outline(b[0], b[1], b[2], b[3], K.OUTLINE);
+  txt((b[0] + b[2]) / 2, b[1] + (b[3] - b[1]) / 2 - 5, label, 8, hot ? K.INK : K.GREY, 'ma');
+}
+function drawTray() {
+  const open = B.tray.open, tx = trayX();
+  rect(tx, TRAY_Y0, W - 1, TRAY_Y1, 'rgb(56,50,46)');
+  outline(tx, TRAY_Y0, W - 1, TRAY_Y1, K.OUTLINE);
+  rect(tx - 12, 204, tx + 2, 244, 'rgb(72,64,58)');
+  outline(tx - 12, 204, tx + 2, 244, K.OUTLINE);
+  for (let i = 0; i < 3; i++) rect(tx - 8, 212 + i * 10, tx - 2, 213 + i * 10, 'rgb(40,36,34)');
+  if (open) {
+    const [ax0, ay0, ax1, ay1] = stampBtnBox('approve', tx);
+    rect(ax0, ay0, ax1, ay1, K.GREEN); outline(ax0, ay0, ax1, ay1, K.GREEN_D || 'rgb(56,88,48)');
+    txt((ax0 + ax1) / 2, (ay0 + ay1) / 2 - 8, '合格', 10, K.WHITE, 'ma');
+    txt((ax0 + ax1) / 2, (ay0 + ay1) / 2 + 4, 'PASS', 8, K.WHITE, 'ma');
+    const [dx0, dy0, dx1, dy1] = stampBtnBox('deny', tx);
+    rect(dx0, dy0, dx1, dy1, K.RED); outline(dx0, dy0, dx1, dy1, K.RED_D);
+    txt((dx0 + dx1) / 2, (dy0 + dy1) / 2 - 8, '重做', 10, K.WHITE, 'ma');
+    txt((dx0 + dx1) / 2, (dy0 + dy1) / 2 + 4, 'REDO', 8, K.WHITE, 'ma');
+  }
+  // 盖章按压动画
+  for (const p of B.presses) {
+    const u2 = seg(now, p.t0, p.t0 + 0.3);
+    if (u2 >= 1) continue;
+    const [mx, my] = MARK_XY[p.kind];
+    const lift = Math.round(Math.sin(u2 * Math.PI) * 14);
+    drawStampTool(mx, my - lift, p.kind);
+  }
+}
+function drawStampTool(cx, cy, kind) {
+  const col = kind === 'approve' ? K.GREEN : K.RED;
+  rect(cx - 14, cy - 30, cx + 13, cy - 24, 'rgb(70,60,52)');
+  rect(cx - 4, cy - 24, cx + 3, cy - 14, 'rgb(70,60,52)');
+  rect(cx - 16, cy - 14, cx + 15, cy - 8, col);
+  outline(cx - 16, cy - 14, cx + 15, cy - 8, K.INK);
+  txt(cx, cy - 13, kind === 'approve' ? '✓' : '✗', 8, K.WHITE, 'ma');
+}
+function drawInkMark(d) {
+  if (!d.stamp || !d.big) return;
+  const sx = d.x + d.stamp.dx, sy = d.y + d.stamp.dy;
+  const col = d.stamp.kind === 'approve' ? 'rgba(84,128,70,0.75)' : 'rgba(180,46,40,0.75)';
+  outline(sx, sy, sx + 40, sy + 40, col, 2);
+  outline(sx + 4, sy + 4, sx + 36, sy + 36, col);
+  txt(sx + 21, sy + 12, d.stamp.kind === 'approve' ? '合格' : '重做', 10, col, 'ma');
+  txt(sx + 21, sy + 26, '班主任', 8, col, 'ma');
+}
+function drawDocs() {
+  for (const d of B.docs) {
+    if (d.big) {
+      d.doc.draw(d.x, d.y);
+      drawInkMark(d);
+      if (B.insp.on && d.owner === 'ent') {
+        outline(d.x - 1, d.y - 1, d.x + d.doc.w, d.y + d.doc.h, 'rgba(220,200,120,.6)');
+      }
+    } else {
+      smallIcon(d.doc.icon[0], d.doc.icon[1], d.x, d.y);
+    }
+  }
+}
+function drawLines() {
+  const boxes = lineBoxes();
+  boxes.forEach(({ ln, size, box }) => {
+    const who = ln.who === 'C' ? '王老师' : '学生';
+    txt(30, box[1], who + '：', size, ln.who === 'C' ? K.CLAUDE_L : K.GREY);
+    txt(30 + tw(who + '：', size) + 2, box[1], ln.text, size, ln.who === 'C' ? K.WHITE : K.PAPER);
+  });
+}
+function drawBanner() {
+  const I = B.insp;
+  if (I.banner) {
+    rect(...BANNER_BOX, 'rgba(22,19,19,0.88)');
+    outline(...BANNER_BOX, I.banner.bad ? K.RED : K.GREY_D);
+    txt(BANNER_BOX[0] + 8, BANNER_BOX[1] + 8, I.banner.title, 12, I.banner.bad ? K.RED : K.GREY);
+    txt(BANNER_BOX[0] + 8, BANNER_BOX[1] + 26, I.banner.sub, 10, K.PAPER);
+    if (I.banner.ask) {
+      rect(ASK_BTN[0], ASK_BTN[1], ASK_BTN[2], ASK_BTN[3], K.CLAUDE);
+      outline(...ASK_BTN, K.OUTLINE);
+      txt((ASK_BTN[0] + ASK_BTN[2]) / 2, ASK_BTN[1] + 5, '质问', 10, K.INK, 'ma');
+    }
+    return;
+  }
+  if (I.on) {
+    const s = I.sel.length ? '再点一处，看看两者是否矛盾' : '检查模式：点两处信息找矛盾，或点学生说的话找破绽';
+    rect(...BANNER_BOX, 'rgba(22,19,19,0.85)');
+    outline(...BANNER_BOX, K.GREY_D);
+    txt(BANNER_BOX[0] + 8, BANNER_BOX[1] + 10, s, 10, K.GREY);
+  }
+}
+function drawSelHighlight() {
+  if (!B.insp.on) return;
+  for (const s of B.insp.sel) {
+    const b = s.box();
+    const pulse = 0.5 + 0.5 * Math.sin(now * 6);
+    outline(b[0] - 2, b[1] - 2, b[2] + 2, b[3] + 2, `rgba(240,200,90,${0.45 + 0.4 * pulse})`, 1);
+  }
+}
+function drawFlash() {
+  if (!B.flash) return;
+  const u = seg(now, B.flash.t0, B.flash.t0 + 1.6);
+  if (u >= 1) { B.flash = null; return; }
+  rect(230, 172, 588, 192, `rgba(22,19,19,${0.8 * (1 - u)})`);
+  txt(409, 176, B.flash.s, 10, `rgba(226,215,196,${1 - u})`, 'ma');
+}
+function drawBooth() {
+  drawBoothBg();
+  drawClerk();
+  drawEntrant(B.ent, entrantX(B.ent));
+  drawDocs();
+  drawTray();
+  drawLines();
+  drawSelHighlight();
+  drawBanner();
+  drawFlash();
+  if (!B.ent && !B.ending && B.idx < B.queue.length) {
+    txt(101, 272, '按左下角喇叭叫下一位', 8, K.GREY_D, 'ma');
+  }
+}
+
+// ══════════════ 11. 各屏幕 ══════════════
+function drawTypedScreen(lines, t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  let acc = 0.4;
+  lines.forEach((s) => {
+    const n = Math.floor(Math.max(0, (t - acc) * 24));
+    if (n > 0) txt(70, 60 + lines.indexOf(s) * 26, s.slice(0, n), 12, K.PAPER);
+    acc += 0.35 + s.length * 0.03;
+  });
+  return acc;
+}
+function drawTitle(t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  // 背景网格
+  G.fillStyle = 'rgba(204,112,80,0.08)';
+  for (let x = 0; x < W; x += 32) G.fillRect(x, 0, 1, H);
+  for (let y = 0; y < H; y += 32) G.fillRect(0, y, W, 1);
+  bigTitle(t);
+  txt(320, 156, '请出示你的作业', 16, K.PAPER, 'ma');
+  txt(320, 182, ' Papers, Please 式检查游戏 · 班主任版 ', 10, K.GREY, 'ma');
+  const bl = Math.sin(t * 3) > -0.2;
+  if (bl) txt(320, 240, '- 点击开始 -', 12, K.CLAUDE_L, 'ma');
+  const hasSave = !!localStorage.getItem('ipc_save');
+  txt(320, 268, hasSave ? `继续 第 ${S.day} 天　／　重新开始` : '周一早晨，收作业', 10, K.GREY_D, 'ma');
+  txt(320, 336, '玩法致敬《IP, PLEASE》与《Papers, Please》', 8, 'rgb(90,84,80)', 'ma');
+}
+function bigTitle(t) {
+  const s = 'HOMEWORK, PLEASE';
+  const size = 34, k = 1;
+  const w = tw(s, size) * k;
+  const x = Math.round((W - w) / 2), y = 66;
+  const jitter = (Math.sin(t * 9) > 0.96) ? 1 : 0;
+  const c = textCanvas(s, size, K.CLAUDE);
+  G.drawImage(c, x + jitter - 2, y - 1);
+  const c2 = textCanvas(s, size, K.CLAUDE_L);
+  G.drawImage(c2, 0, 0, 2, c2.height, x - 2, y - 1, 2, c2.height);
+}
+function titleClick() {
+  const hasSave = !!localStorage.getItem('ipc_save');
+  if (hasSave) { loadGame(); go('daycard'); }
+  else { clearSave(); S.day = 1; go('daycard'); }
+}
+function drawDayCard(t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  const u = clampU(t / 0.5);
+  const cy = Math.round(lerp(-60, 150, easeOut(u)));
+  rect(0, cy, W - 1, cy + 60, K.PAPER);
+  rect(0, cy, W - 1, cy + 6, K.RED_D);
+  txt(320, cy + 16, `DAY ${S.day}`, 26, K.TEXT, 'ma');
+  txt(320, cy + 46, `2026.10.${pad2(18 + S.day)}　${WEEKDAYS[S.day]}`, 10, K.TEXT_L, 'ma');
+}
+function drawNews(t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  const u = easeOut(clampU((t - 0.3) / 0.5));
+  const nw = 420, nh = 240;
+  const nx = Math.round(lerp(-460, (W - nw) / 2, u)), ny = 60;
+  docShadow(nx, ny, nw, nh);
+  rect(nx, ny, nx + nw - 1, ny + nh - 1, K.PAPER);
+  rect(nx, ny, nx + nw - 1, ny + 30, K.RED_D);
+  txt(nx + 12, ny + 8, '教导处通报', 12, K.WHITE);
+  txt(nx + nw - 12, ny + 10, `第 ${30 + S.day} 期`, 8, 'rgb(226,184,176)', 'ra');
+  const item = NEWS[S.day];
+  // 报头图标
+  const ix = nx + nw / 2, iy = ny + 64;
+  drawNewsIcon(item.icon, ix, iy);
+  txt(ix, ny + 96, item.h1, 18, K.TEXT, 'ma');
+  txt(ix, ny + 126, item.sub, 10, K.TEXT, 'ma');
+  rect(nx + 24, ny + 148, nx + nw - 24, ny + 148, K.PAPER_D);
+  wrap(item.h2, 10, nw - 48).forEach((s, i) => txt(nx + 24, ny + 160 + i * 14, s, 10, K.TEXT_L));
+  if (t > 0.9 && Math.sin(t * 3) > -0.2) txt(ix, ny + nh + 22, '- 点击开始工作 -', 10, K.GREY, 'ma');
+}
+function drawNewsIcon(kind, cx, cy) {
+  if (kind === 'gate') { rect(cx - 20, cy - 14, cx + 20, cy + 14, K.GREY_D); rect(cx - 14, cy - 8, cx - 6, cy + 14, K.GREY); rect(cx + 6, cy - 8, cx + 14, cy + 14, K.GREY); rect(cx - 2, cy - 14, cx + 2, cy + 14, K.RED); }
+  else if (kind === 'clock') { outline(cx - 14, cy - 14, cx + 14, cy + 14, K.GREY_D, 2); line(cx, cy, cx, cy - 9, K.GREY_D); line(cx, cy, cx + 7, cy + 3, K.GREY_D); }
+  else if (kind === 'plane') { rect(cx - 18, cy - 2, cx + 14, cy + 2, K.GREY_D); rect(cx - 6, cy - 10, cx - 2, cy + 2, K.GREY_D); rect(cx - 14, cy + 2, cx - 8, cy + 8, K.GREY_D); }
+}
+function initSummary() {
+  S.pay += B.pay;
+  saveGame();
+}
+function drawSummary(t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  rect(160, 40, 479, 320, K.PAPER);
+  rect(160, 40, 479, 58, K.RED_D);
+  txt(320, 46, `第 ${S.day} 天 · 结算`, 14, K.WHITE, 'ma');
+  const rows = [
+    ['检查份数', `${B.total} 份`],
+    ['批改正确', `${B.correct} 份`],
+    ['误判单', `${B.total - B.correct} 张`],
+    ['当日绩效', `${B.pay} 分`],
+    ['累计绩效', `${S.pay} 分`],
+    ['累计误判', `${S.cites} 张`],
+  ];
+  rows.forEach(([k, v], i) => {
+    txt(220, 78 + i * 26, k, 12, K.TEXT_L);
+    txt(420, 76 + i * 26, v, 14, K.TEXT, 'ra');
+  });
+  if (S.cites >= 4) {
+    txt(320, 250, '误判太多……明天去教导处写情况说明吧。', 10, K.RED_D, 'ma');
+  }
+  if (t > 1 && Math.sin(t * 3) > -0.2) txt(320, 296, S.day >= LAST_DAY ? '- 点击进入周末 -' : '- 点击开始明天 -', 10, K.TEXT_L, 'ma');
+}
+function restartBtn() { return [250, 288, 390, 314]; }
+function drawEnd(t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  txt(320, 90, '本周作业检查结束', 22, K.CLAUDE_L, 'ma');
+  const grade = S.cites === 0 ? '零误判。教导处在广播里表扬了你。' : S.cites <= 2 ? '表现合格。继续按班规办事。' : '误判缠身。教导处在关注你。';
+  txt(320, 140, `累计检查 ${S.total} 份 · 正确 ${S.correct} 份`, 12, K.PAPER, 'ma');
+  txt(320, 166, `累计绩效 ${S.pay} 分 · 误判单 ${S.cites} 张`, 12, K.PAPER, 'ma');
+  txt(320, 208, grade, 10, K.GREY, 'ma');
+  const r = restartBtn();
+  if (t > 1.2) {
+    rect(...r, 'rgb(52,48,44)');
+    outline(...r, K.OUTLINE);
+    txt(320, 294, '重新开始', 12, K.CLAUDE_L, 'ma');
+  }
+}
+function drawOver(t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  txt(320, 120, '你被调去管宿舍了', 22, K.RED, 'ma');
+  txt(320, 160, '误判太多，教导处找你谈了话。', 10, K.GREY, 'ma');
+  const r = restartBtn();
+  rect(...r, 'rgb(52,48,44)'); outline(...r, K.OUTLINE);
+  txt(320, 294, '重新开始', 12, K.CLAUDE_L, 'ma');
+}
+function drawBoot(t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  if (t > 0.2) txt(320, 160, 'HOMEWORK, PLEASE', 16, K.GREY_D, 'ma');
+  if (t > 0.6) txt(320, 190, '点击任意处开始', 10, K.GREY_D, 'ma');
+}
+
+// ══════════════ 12. 场景切换与主循环 ══════════════
+function go(name) {
+  scene = name; sceneT0 = now;
+  SFX.ambient(name === 'booth');
+  if (name === 'daycard') SFX.play('day_hit');
+  if (name === 'news') { SFX.play('whoosh'); SFX.play('paper'); }
+  if (name === 'summary') { SFX.play('sad'); initSummary(); }
+  if (name === 'end') SFX.play('coin');
+  if (name === 'over') SFX.play('stamp_no');
+  if (name === 'booth') startDay();
+}
+function update() {
+  if (scene === 'daycard' && st() > 1.9) go('news');
+  if (scene === 'booth') {
+    runTimers();
+    const idle = !B.ent && !B.ending;
+    if (idle && now > B.lastFinish + 2.2) flashMsg('按左下角喇叭叫下一位');
+  }
+}
+function render() {
+  setCtx(F.getContext('2d'));
+  const t = st();
+  if (scene === 'boot') drawBoot(t);
+  else if (scene === 'title') drawTitle(t);
+  else if (scene === 'daycard') drawDayCard(t);
+  else if (scene === 'news') drawNews(t);
+  else if (scene === 'booth') drawBooth();
+  else if (scene === 'summary') drawSummary(t);
+  else if (scene === 'end') drawEnd(t);
+  else if (scene === 'over') drawOver(t);
+  const g = canvasEl.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  let ox = 0, oy = 0;
+  if (scene === 'booth' && B.shake !== undefined) {
+    const k = Math.floor((now - (B.shake || -9)) * 30);
+    if (k >= 0 && k < 4) [[0, 3], [1, -2], [-1, 1], [0, -1]].forEach((v, i) => { if (i === k) { ox = v[0]; oy = v[1]; } });
+  }
+  g.fillStyle = K.INK; g.fillRect(0, 0, W, H);
+  g.drawImage(F, ox, oy);
+  const cursor = drag ? 'hand' : 'arrow';
+  if (ptr.mouse) { setCtx(g); drawCursorPx(drag ? HAND_PX : CURSOR_PX, ptr.x, ptr.y); }
+}
+function loop(ts) {
+  requestAnimationFrame(loop);
+  now = ts / 1000;
+  update();
+  render();
+}
+function fit() {
+  const s = Math.min(window.innerWidth / W, window.innerHeight / H);
+  canvasEl.style.width = `${Math.floor(W * s)}px`;
+  canvasEl.style.height = `${Math.floor(H * s)}px`;
+}
+function boot() {
+  canvasEl = document.getElementById('game');
+  [F] = makeCanvas(W, H);
+  fit();
+  window.addEventListener('resize', fit);
+  canvasEl.addEventListener('pointerdown', onDown);
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+  canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
+  window.addEventListener('keydown', (e) => { if (e.key === 'm' || e.key === 'M') toggleMute(); });
+  loadGame();
+  sceneT0 = performance.now() / 1000;
+  requestAnimationFrame(loop);
+}
+function toggleMute() {
+  SFX.init();
+  const m = SFX.toggleMute();
+  const b = document.getElementById('mute');
+  if (b) b.textContent = m ? '声音：关' : '声音：开';
+}
+document.getElementById('mute').addEventListener('click', toggleMute);
+const fullBtn = document.getElementById('full');
+if (!document.documentElement.requestFullscreen && !document.documentElement.webkitRequestFullscreen) fullBtn.style.display = 'none';
+fullBtn.addEventListener('click', () => {
+  const root = document.documentElement;
+  if (document.fullscreenElement) { document.exitFullscreen(); return; }
+  const p = (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+  if (p && p.then) p.then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {});
+});
+window.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
