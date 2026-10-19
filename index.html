@@ -734,6 +734,8 @@ const DESK_ITEMS = {
   phone: { key: 'xr.手机', label: '手机 · 今日屏幕 6.5 小时', type: 'phone' },
   console: { key: 'xr.游戏机', label: '游戏机 · 还是热的', type: 'console' },
   manga: { key: 'xr.漫画', label: '漫画 · 第 27 册夹在数学里', type: 'manga' },
+  earbuds: { key: 'xr.耳机', label: '无线耳机 · 还连着某台手机', type: 'ears' },
+  novel: { key: 'xr.小说', label: '网文打印稿 · 第 4 卷', type: 'manga' },
 };
 const DESK_ISSUE = (it) => ({ law: 'xray',
   pairs: [[it.key], [it.key, 'rule.xray']], title: '课桌违禁', sub: it.label,
@@ -822,7 +824,7 @@ function buildQueue(day) {
     q.push(aiStudent());
     q.push(sloppyStudent());
     q.push(copyStudent());
-    q.push(drawerStudent());
+    q.push(drawerStudent(pick(['earbuds', 'novel'])));
     q.push(cleanStudent());
   } else if (day === 6) {
     q.push(idMismatchStudent());
@@ -831,7 +833,7 @@ function buildQueue(day) {
     q.push(noteStudent());
     q.push(dateIssueStudent());
     q.push(sloppyStudent());
-    q.push(drawerStudent());
+    q.push(drawerStudent(pick(['earbuds', 'novel', 'phone'])));
   } else {
     q.push(forgedSignStudent());
     q.push(cleanStudent());
@@ -954,6 +956,15 @@ function handDocs(e) {
     i++;
   }
   e.handed = true;
+  if (B.lastVerdict === 'deny' && e.spec.ok && e.spec.ok[0] === 'deny') {
+    later(0.6, () => {
+      if (B && B.ent === e) {
+        if (Math.random() < 0.5) e.expr = 'nervous';
+        say('E', pick(['听说上一个被你退回去了……', '前面那位的情况，我听说了。', '我这本，呃，绝对没问题。']));
+      }
+    });
+    if (e.sweatT === null) e.sweatT = now + 0.8;
+  }
   if (!B.ruleInst) { B.ruleInst = { key: 'rule', doc: new Rulebook(S.day), owner: 'me', x: 470, y: 300, big: false, stamp: null }; B.docs.push(B.ruleInst); }
   if (S.day === 1 && !S.tut.flip) { S.tut.flip = true; flashMsg('点作业本批改；『?检查』点两处矛盾立法'); }
   if (e.spec.after) runSteps(e.spec.after);
@@ -984,6 +995,8 @@ function leave(e) {
   const good = dec && ok.includes(dec);
   B.total++; S.total++;
   if (good) { B.correct++; S.correct++; SFX.play('coin'); flashMsg(pick(['批完了。', '下一位。', '合格。'])); }
+  else if (dec === 'approve') { S.wrongApprove = (S.wrongApprove || 0) + 1; }
+  else if (dec === 'deny' || dec === 'detain') { S.wrongDeny = (S.wrongDeny || 0) + 1; }
   else {
     S.cites++; B.pay = Math.max(0, B.pay - 2);
     const why = e.spec.reason || '违反规则';
@@ -995,6 +1008,7 @@ function leave(e) {
     B.gradeOk = (B.gradeOk || 0) + 1;
     B.pay += 1;
   }
+  B.lastVerdict = dec || 'skip';
   if (e.spec.react && e.spec.react[dec]) runSteps(e.spec.react[dec]);
   else if (dec === 'approve' && e.spec.thanks) say('E', e.spec.thanks);
   later(1.4, () => { if (B) { B.docs = B.docs.filter((d) => d.owner !== 'ent'); B.ent = null; B.lastFinish = now; B.lines = []; } });
@@ -1566,7 +1580,8 @@ function drawFlash() {
   txt(409, 176, B.flash.s, 10, `rgba(226,215,196,${1 - u})`, 'ma');
 }
 function drawItemIcon(type, x, y) {
-  if (type === 'phone') { outline(x, y, x + 9, y + 15, K.GREY_D); rect(x + 1, y + 1, x + 8, y + 14, 'rgb(40,44,52)'); rect(x + 3, y + 3, x + 6, y + 9, 'rgb(90,130,170)'); }
+  if (type === 'ears') { rect(x, y, x + 4, y + 4, 'rgb(60,64,70)'); rect(x + 9, y + 2, x + 13, y + 6, 'rgb(60,64,70)'); line(x + 4, y + 4, x + 9, y + 5, 'rgb(60,64,70)'); pt(x + 1, y + 5, K.RED); }
+  else if (type === 'phone') { outline(x, y, x + 9, y + 15, K.GREY_D); rect(x + 1, y + 1, x + 8, y + 14, 'rgb(40,44,52)'); rect(x + 3, y + 3, x + 6, y + 9, 'rgb(90,130,170)'); }
   else if (type === 'console') { rect(x, y, x + 15, y + 9, 'rgb(70,74,80)'); pt(x + 3, y + 4, K.RED); pt(x + 5, y + 4, K.RED); rect(x + 8, y + 2, x + 13, y + 6, 'rgb(40,44,52)'); }
   else if (type === 'manga') { rect(x, y, x + 11, y + 15, 'rgb(160,60,60)'); rect(x + 2, y + 2, x + 9, y + 13, K.PAPER); }
   else { rect(x, y, x + 11, y + 15, 'rgb(150,120,80)'); rect(x + 1, y + 1, x + 10, y + 14, 'rgb(220,210,190)'); }
@@ -1673,6 +1688,8 @@ function drawNews(t) {
   txt(ix, ny + 126, item.sub, 10, K.TEXT, 'ma');
   rect(nx + 24, ny + 148, nx + nw - 24, ny + 148, K.PAPER_D);
   wrap(item.h2, 10, nw - 48).forEach((s, i) => txt(nx + 24, ny + 160 + i * 14, s, 10, K.TEXT_L));
+  const lawN = Object.keys(S.laws || {}).length;
+  txt(nx + 24, ny + nh - 26, '涌现监测：班规已立法 ' + lawN + ' / 6 条' + ((S.wrongApprove || 0) ? ' · 漏网 ' + S.wrongApprove + ' 起' : ''), 8, K.TEXT_L);
   if (t > 0.9 && Math.sin(t * 3) > -0.2) txt(ix, ny + nh + 22, '- 点击开始工作 -', 10, K.GREY, 'ma');
 }
 function drawNewsIcon(kind, cx, cy) {
@@ -1721,6 +1738,8 @@ function drawEnd(t) {
   txt(320, 232, score, 10, K.PAPER, 'ma');
   const lawsN = Object.keys(S.laws || {}).length;
   if (S.cites === 0 && lawsN >= 6) txt(320, 116, '★ 金结局 · 涌现大师：六法立齐，零误判 ★', 11, K.GOLD, 'ma');
+  if ((S.wrongApprove || 0) >= 3) txt(320, 178, '漏网之鱼结局：你放过的学生里，有人月考顶替了别人的名字', 10, K.RED, 'ma');
+  if ((S.wrongDeny || 0) >= 3) txt(320, 178, '铁腕结局：家长会上，三封投诉信点了你的名', 10, K.RED, 'ma');
   const audit = S.cites === 0 ? '涌现审计：反涌现标兵' : S.cites <= 3 ? '涌现审计：合格班主任' : '涌现审计：涌现重灾区';
   const attempts = Math.max(0, S.total - S.correct);
   txt(320, 254, audit + ' · 本周涌现企图 ' + attempts + ' 起', 10, K.CLAUDE_L, 'ma');
