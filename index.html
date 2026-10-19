@@ -105,7 +105,7 @@ function drawCursorPx(pat, x, y) {
 }
 
 // ══════════════ 2. 像素字管线：4 倍绘制 → 最近邻降采样 ══════════════
-const PXK = 6;
+const PXK = 1;   // A/B 实测：原生直绘最清晰（1x 渲染 + 整体 2x 最近邻放大）
 const [MEAS, MG] = makeCanvas(8, 8);
 const FONT_STACK = '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif';
 const wCache = new Map(), tCache = new Map();
