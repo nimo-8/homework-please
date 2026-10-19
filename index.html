@@ -405,7 +405,7 @@ const RULES = [
   { day: 2, page: 0, key: 'recite', head: '§3 抽背：有疑点才能抽', subs: ['背不出：请家长'] },
   { day: 3, page: 1, key: 'real', head: '§4 作业须真实', subs: ['禁止打印代写', '禁止抄袭（错处雷同即实锤）', '家长签字须真实'] },
   { day: 4, page: 1, key: 'xray', head: '§5 课桌须干净', subs: ['违禁：手机、游戏机、漫画', '搜课桌：点可疑物品即查'] },
-  { day: 5, page: 2, key: 'note', head: '§6 代写产业链：一律上报', subs: ['往来小纸条 = 实锤', '本子批次、字迹雷同要警觉'] },
+  { day: 5, page: 2, key: 'note', head: '§6 代写产业链：一律上报', subs: ['往来小纸条 = 实锤', '本子批次、字迹雷同要警觉', '宣称「涌现」：按代写论处'] },
 ];
 
 class Rulebook {
@@ -582,6 +582,10 @@ const RANDOM_TELLS = [
     [['C', '涌现？'], ['E', '……就是，呃，它自己长出来的。我没碰过它。', { expr: 'nervous', sweat: true }]]],
   ['AI 说这题答案是 56。', 'AI 也会算错：8 × 7 ≠ 56',
     [['C', 'AI 说的？它算给你看的，还是你抄的？'], ['E', '……它，呃，涌现出来的答案。', { expr: 'nervous', sweat: true }]]],
+  ['我表哥认识一个做涌现的。', '「做涌现的」= 代写工作室',
+    [['C', '做涌现的？什么工种？'], ['E', '……就是，帮人长作业的。', { expr: 'nervous', sweat: true }]]],
+  ['作业在群里自己传开了。', '「自己传开」= 我下载了一份',
+    [['C', '文件还会自己长腿？'], ['E', '……它，它涌现到我手机里的。', { expr: 'nervous', sweat: true }]]],
 ];
 
 // ══════════════ 6. 每日队列 ══════════════
@@ -755,7 +759,7 @@ function aiStudent() {
     hello: '老师，我的作业全是 AI 写的，全对。', thanks: '……AI 也会错吗？',
     docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, printed: true, ex: makeEx(0) }) }],
     primary: 'hw', ok: ['deny'], reason: 'AI 代写（打印体 · 非本人完成）',
-    intro: [['E', '老师，我用 AI 写的作业，效率很高。']],
+    intro: [['E', pick(['老师，我用 AI 写的作业，效率很高。', '老师，这是 AI 帮我涌现的作业。', 'AI 写的，我检查过，全对。'])]],
     issues: [{ pairs: [['hw.科目', 'rule.real'], ['hw.页数', 'rule.real']], title: 'AI 代写', sub: '打印体 · 声称 AI 生成',
       ask: [['C', 'AI 写的算你写的吗？'], ['E', 'prompt 是我写的啊！想法是我的！', { expr: 'grin', sweat: true }]] }],
     react: { deny: [['E', '那让 AI 来月考吧……', { expr: 'sad' }]] },
@@ -1431,6 +1435,8 @@ function drawBoothBg() {
   else smallIcon('book', C.BOOK, BOOK_BOX[0] + 3, BOOK_BOX[1] + 12);
   // 时钟与钱
   txt(560, 118, `${todayStr()} ${WEEKDAYS[S.day]}`, 8, K.GREY, 'ra');
+  const TIPS = { 4: '涌现预警：有学生声称作业会自己长出来', 5: '涌现预警：代写团伙自称「涌现工作室」', 6: '涌现预警：补课教室查获「涌现型」作业本', 7: '涌现预警：月考前夜，涌现高发期' };
+  if (S.day >= 4 && TIPS[S.day]) txt(634, 130, TIPS[S.day], 8, 'rgb(200,120,90)', 'ra');
   txt(634, 16, `${B.pay} 分`, 12, K.ORANGE, 'ra');
 }
 function drawBtn(b, label, hot) {
@@ -1691,6 +1697,9 @@ function drawEnd(t) {
   txt(320, 208, grade, 10, K.GREY, 'ma');
   const score = S.cites === 0 ? '月考数学平均分 92 · 年级第一' : S.cites <= 3 ? '月考数学平均分 84 · 稳中有升' : '月考数学平均分 71 · 有学生原形毕露';
   txt(320, 232, score, 10, K.PAPER, 'ma');
+  const audit = S.cites === 0 ? '涌现审计：反涌现标兵' : S.cites <= 3 ? '涌现审计：合格班主任' : '涌现审计：涌现重灾区';
+  const attempts = Math.max(0, S.total - S.correct);
+  txt(320, 254, audit + ' · 本周涌现企图 ' + attempts + ' 起', 10, K.CLAUDE_L, 'ma');
   const r = restartBtn();
   if (t > 1.2) {
     rect(...r, 'rgb(52,48,44)');
