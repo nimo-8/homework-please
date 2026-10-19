@@ -383,13 +383,15 @@ const RULES = [
   { day: 2, page: 0, key: 'info', head: '§2 信息须与本人一致', subs: ['姓名、学号：与学生证一致', '日期：必须当天', '补交旧作业：无效（须附假条）'] },
   { day: 2, page: 0, key: 'recite', head: '§3 抽背：有疑点才能抽', subs: ['背不出：请家长'] },
   { day: 3, page: 1, key: 'real', head: '§4 作业须真实', subs: ['禁止打印代写', '禁止抄袭（错处雷同即实锤）', '家长签字须真实'] },
+  { day: 4, page: 1, key: 'xray', head: '§5 课桌须干净', subs: ['违禁：手机、游戏机、漫画', '搜课桌：点可疑物品即查'] },
+  { day: 5, page: 2, key: 'note', head: '§6 代写产业链：一律上报', subs: ['往来小纸条 = 实锤', '本子批次、字迹雷同要警觉'] },
 ];
 
 class Rulebook {
   constructor(day) {
     this.day = day; this.w = 200;
     const rules = RULES.filter((r) => r.day <= day);
-    this.npages = day >= 3 ? 2 : 1;
+    this.npages = day >= 5 ? 3 : (day >= 3 ? 2 : 1);
     this.pages = [];
     for (let p = 0; p < this.npages; p++) {
       const L = [];
@@ -460,6 +462,25 @@ function drawScribble(x, y, s) {
   rect(x + tw(s, 10) - 1, y - 2, x + tw(s, 10) + 2, y + 3, 'rgb(150,40,40)');
 }
 
+// 夹在作业里的代写小纸条
+class Note {
+  constructor(lines) {
+    this.lines = lines;
+    this.w = Math.max(96, ...lines.map((s) => tw(s, 10)) + 18);
+    this.h = 12 + 13 * lines.length;
+    this.icon = ['card', [236, 228, 204]];
+    this.fields = { 内容: [4, 4, this.w - 6, this.h - 6] };
+  }
+  draw(x, y) {
+    const { w, h } = this;
+    docShadow(x, y, w, h);
+    rect(x, y, x + w - 1, y + h - 1, 'rgb(238,231,206)');
+    G.fillStyle = K.DESK_D;
+    G.beginPath(); G.moveTo(x + w - 7, y); G.lineTo(x + w, y); G.lineTo(x + w, y + 7); G.fill();
+    this.lines.forEach((s, i) => txt(x + 8, y + 6 + i * 13, s, 10, 'rgb(70,70,110)'));
+  }
+}
+
 // ══════════════ 5. 数据：班级、名册与班规 ══════════════
 const OUR_CLASS = '初三(2)班';
 const OTHER_CLASSES = ['初三(1)班', '初三(3)班', '初三(4)班'];
@@ -471,9 +492,13 @@ const NEWS = {
   1: { h1: '明日早读收作业！', sub: '教导处：各班严查作业质量，杜绝蒙混', h2: '提醒：别班作业不要代收，一律退回原班', icon: 'gate' },
   2: { h1: '新规：信息须与本人一致', sub: '有学生连姓名学号一起抄，被当场识破', h2: '震惊！某作业本姓名与学生证对不上', icon: 'clock' },
   3: { h1: '家长签字造假泛滥', sub: '教导处：打印代写、抄袭雷同、伪造签字一律重做', h2: '某家长反映：自己三年没签过字', icon: 'plane' },
+  4: { h1: '突击检查课桌！', sub: '教导处：违禁品零容忍，班主任随堂抽查', h2: '家长群炸了：手机也要没收吗', icon: 'clock' },
+  5: { h1: '代写产业链浮出水面', sub: '同一批作业流向 37 名学生，另有往来条为证', h2: '「代写作文包过批改」小广告进校园', icon: 'gate' },
+  6: { h1: '周六补课照常', sub: '月考倒计时 2 天，作业先交再上课', h2: '有学生连夜赶了七天的作业', icon: 'plane' },
+  7: { h1: '月考明日开考', sub: '班主任联席会：本周作业检查获通报表扬', h2: '教导处：功夫在平时，成绩见真章', icon: 'medal' },
 };
-const LAST_DAY = 3;
-const WEEKDAYS = { 1: '星期一', 2: '星期二', 3: '星期三' };
+const LAST_DAY = 7;
+const WEEKDAYS = { 1: '星期一', 2: '星期二', 3: '星期三', 4: '星期四', 5: '星期五', 6: '星期六', 7: '星期日' };
 const QUIZ = [
   ['床前明月光，下一句？', '疑是地上霜。'],
   ['春眠不觉晓，下一句？', '处处闻啼鸟。'],
@@ -646,6 +671,36 @@ function tellStudent() {
   return e;
 }
 
+// —— 课桌违禁 ——
+const DESK_ITEMS = {
+  phone: { key: 'xr.手机', label: '手机 · 今日屏幕 6.5 小时', type: 'phone' },
+  console: { key: 'xr.游戏机', label: '游戏机 · 还是热的', type: 'console' },
+  manga: { key: 'xr.漫画', label: '漫画 · 第 27 册夹在数学里', type: 'manga' },
+};
+const DESK_ISSUE = (it) => ({
+  pairs: [[it.key], [it.key, 'rule.xray']], title: '课桌违禁', sub: it.label,
+  ask: [['C', '这个是什么？'], ['E', '……这不是我的。', { expr: 'shock', sweat: true }]],
+});
+function drawerStudent(itemKey) {
+  const e = cleanStudent();
+  const it = DESK_ITEMS[itemKey || pick(['phone', 'console', 'manga'])];
+  e.desk = [{ label: '课本 · 数学必修', type: 'book' }, it];
+  e.ok = ['deny']; e.reason = '课桌违禁品';
+  e.issues = [DESK_ISSUE(it)];
+  e.react = { deny: [['E', '……手机还我。', { expr: 'sad' }]] };
+  return e;
+}
+function noteStudent() {
+  const e = cleanStudent();
+  e.docs.push({ key: 'note', doc: new Note(['兄弟，下周的周记', '也帮我写了，老价钱']) });
+  e.ok = ['deny']; e.reason = '作业代写实锤';
+  e.intro = [['E', '老师，作业交齐了。']];
+  e.issues = [{ pairs: [['note.内容', 'rule.real']], title: '代写往来条', sub: '「兄弟，下周的周记也帮我写了，老价钱」',
+    ask: [['C', '这张条子怎么解释？'], ['E', '……那是别人的字！', { expr: 'nervous', sweat: true }]] }];
+  e.react = { deny: [['E', '条子没收就行……', { expr: 'sad' }]] };
+  return e;
+}
+
 function buildQueue(day) {
   const q = [];
   if (day === 1) {
@@ -659,13 +714,39 @@ function buildQueue(day) {
     q.push(tellStudent());
     q.push(dateIssueStudent());
     q.push(Math.random() < 0.5 ? otherClassStudent() : cleanStudent());
-  } else {
+  } else if (day === 3) {
     q.push(printedStudent());
     q.push(forgedSignStudent());
     q.push(oldHwStudent());
     q.push(cleanStudent());
     q.push(tellStudent());
     q.push(copyStudent());
+  } else if (day === 4) {
+    q.push(drawerStudent('phone'));
+    q.push(cleanStudent());
+    q.push(drawerStudent('manga'));
+    q.push(tellStudent());
+    q.push(cleanStudent());
+    q.push(drawerStudent('console'));
+  } else if (day === 5) {
+    q.push(noteStudent());
+    q.push(printedStudent());
+    q.push(cleanStudent());
+    q.push(copyStudent());
+    q.push(drawerStudent());
+    q.push(cleanStudent());
+  } else if (day === 6) {
+    q.push(idMismatchStudent());
+    q.push(forgedSignStudent());
+    q.push(tellStudent());
+    q.push(noteStudent());
+    q.push(dateIssueStudent());
+    q.push(cleanStudent());
+    q.push(drawerStudent());
+  } else {
+    q.push(forgedSignStudent());
+    q.push(cleanStudent());
+    q.push(oldHwStudent());
   }
   if (day > 1) { const rest = shuffle(q.slice(1)); rest.forEach((sn, i) => { q[i + 1] = sn; }); }
   return q;
@@ -689,6 +770,7 @@ const SPEAKER = [6, 290, 24, 306];
 const DETAIN_BTN = [172, 268, 212, 280];
 const QUIZ_BTN = [126, 268, 166, 280];
 const INSPECT_BTN = [602, 322, 634, 354];
+const DRAWER_BTN = [566, 322, 598, 354];
 const RULE_BTN = [530, 322, 562, 354];
 const ASK_BTN = [548, 140, 590, 162];
 const BANNER_BOX = [300, 134, 598, 170];
@@ -704,6 +786,7 @@ function startDay() {
     queue: buildQueue(S.day), idx: 0, ent: null, docs: [], lines: [], timers: [],
     tray: { open: false, t: -9 }, presses: [],
     insp: { on: false, sel: [], banner: null },
+    drawer: { on: false },
     ruleInst: null, ruleOpened: false, speakerT: -9,
     pay: 5, correct: 0, total: 0, flash: null,
     ending: false, lastFinish: now,
@@ -875,8 +958,19 @@ function lineBoxes() {
     return { ln, size, box: [30, y, 30 + tw('学生：', size) + tw(ln.text, size) + 10, y + 15] };
   });
 }
+function drawerItemBox(i) {
+  return [WIN[0] + 12 + (i % 2) * 96, WIN[1] + 26 + Math.floor(i / 2) * 48, WIN[0] + 104 + (i % 2) * 96, WIN[1] + 66 + Math.floor(i / 2) * 48];
+}
 function fieldAt(x, y) {
   const e = B.ent;
+  if (B.drawer && B.drawer.on && e && e.handed && e.spec.desk) {
+    for (let i = 0; i < e.spec.desk.length; i++) {
+      const it = e.spec.desk[i];
+      if (!it.key) continue;
+      const b = drawerItemBox(i);
+      if (inBox(x, y, b)) return { key: it.key, box: () => b };
+    }
+  }
   if (e && e.handed) {
     for (const { ln, box } of lineBoxes()) {
       if (ln.who === 'E' && ln.ent === e && inBox(x, y, box)) return { key: 'say', ln, box: () => box };
@@ -1005,6 +1099,7 @@ function onUp(ev) {
 }
 function boothInput(x, y) {
   if (B.ending) return;
+  if (S.day >= 4 && inBox(x, y, DRAWER_BTN)) { B.drawer.on = !B.drawer.on; SFX.play('whoosh'); return; }
   if (inBox(x, y, INSPECT_BTN)) return setInspect(!B.insp.on);
   if (B.insp.on) return inspectClick(x, y);
   const tx = trayX();
@@ -1069,7 +1164,13 @@ function sceneClick(x, y) {
   if (scene === 'boot') { go('title'); return; }
   if (scene === 'title') { titleClick(x, y); return; }
   if (scene === 'news' && st() > 0.6) { go('booth'); return; }
-  if (scene === 'summary') { if (st() > 0.8) go('daycard'); return; }
+  if (scene === 'summary') {
+    if (st() > 0.8) {
+      if (S.day >= LAST_DAY) { go('end'); }
+      else { S.day++; saveGame(); go('daycard'); }
+    }
+    return;
+  }
   if ((scene === 'end' || scene === 'over') && st() > 1.2) {
     const r = restartBtn();
     if (inBox(x, y, r)) { clearSave(); S.day = 1; S.pay = 0; S.cites = 0; S.correct = 0; S.total = 0; go('daycard'); }
@@ -1220,6 +1321,7 @@ function drawBoothBg() {
   }
   drawBtn(RULE_BTN, '班规');
   drawBtn(INSPECT_BTN, B.insp.on ? '退出' : '?检查', B.insp.on);
+  if (S.day >= 4) drawBtn(DRAWER_BTN, '搜课桌', B.drawer && B.drawer.on);
   // 班规书图标（合上时）
   if (B.ruleInst && !B.ruleInst.big) smallIcon('book', C.BOOK, 502, 316);
   else smallIcon('book', C.BOOK, BOOK_BOX[0] + 3, BOOK_BOX[1] + 12);
@@ -1332,10 +1434,33 @@ function drawFlash() {
   rect(230, 172, 588, 192, `rgba(22,19,19,${0.8 * (1 - u)})`);
   txt(409, 176, B.flash.s, 10, `rgba(226,215,196,${1 - u})`, 'ma');
 }
+function drawItemIcon(type, x, y) {
+  if (type === 'phone') { outline(x, y, x + 9, y + 15, K.GREY_D); rect(x + 1, y + 1, x + 8, y + 14, 'rgb(40,44,52)'); rect(x + 3, y + 3, x + 6, y + 9, 'rgb(90,130,170)'); }
+  else if (type === 'console') { rect(x, y, x + 15, y + 9, 'rgb(70,74,80)'); pt(x + 3, y + 4, K.RED); pt(x + 5, y + 4, K.RED); rect(x + 8, y + 2, x + 13, y + 6, 'rgb(40,44,52)'); }
+  else if (type === 'manga') { rect(x, y, x + 11, y + 15, 'rgb(160,60,60)'); rect(x + 2, y + 2, x + 9, y + 13, K.PAPER); }
+  else { rect(x, y, x + 11, y + 15, 'rgb(150,120,80)'); rect(x + 1, y + 1, x + 10, y + 14, 'rgb(220,210,190)'); }
+}
+function drawDrawer() {
+  rect(WIN[0], WIN[1], WIN[2], WIN[3], 'rgb(56,46,42)');
+  txt(WIN[0] + 10, WIN[1] + 8, '课桌 · 抽屉', 10, K.PAPER);
+  const e = B.ent;
+  const items = (e && e.handed && e.spec.desk) ? e.spec.desk : [{ label: '课本 · 数学必修', type: 'book' }, { label: '草稿本', type: 'book' }];
+  items.forEach((it, i) => {
+    const b = drawerItemBox(i);
+    const bad = !!it.key;
+    rect(b[0], b[1], b[2], b[3], bad ? 'rgb(74,54,48)' : 'rgb(62,52,48)');
+    outline(b[0], b[1], b[2], b[3], bad ? K.RED : 'rgb(44,36,34)');
+    drawItemIcon(it.type, b[0] + 6, b[1] + 10);
+    wrap(it.label, 8, 56).slice(0, 2).forEach((ln, j) => txt(b[0] + 24, b[1] + 8 + j * 11, ln, 8, bad ? K.PAPER : K.GREY));
+  });
+  if (!items.some((it) => it.key)) txt(WIN[0] + 10, WIN[3] - 14, '没有发现违禁品', 8, K.GREY_D);
+  else txt(WIN[0] + 10, WIN[3] - 14, '检查模式下点可疑物品', 8, 'rgb(220,140,90)');
+}
 function drawBooth() {
   drawBoothBg();
   drawClerk();
   drawEntrant(B.ent, entrantX(B.ent));
+  if (B.drawer && B.drawer.on) drawDrawer();
   drawDocs();
   drawTray();
   drawLines();
@@ -1425,7 +1550,7 @@ function drawNewsIcon(kind, cx, cy) {
 }
 function initSummary() {
   S.pay += B.pay;
-  saveGame();
+  try { localStorage.setItem('ipc_save', JSON.stringify({ day: Math.min(S.day + 1, LAST_DAY), pay: S.pay, cites: S.cites })); } catch (e) {}
 }
 function drawSummary(t) {
   rect(0, 0, W - 1, H - 1, K.INK);
@@ -1457,6 +1582,8 @@ function drawEnd(t) {
   txt(320, 140, `累计检查 ${S.total} 份 · 正确 ${S.correct} 份`, 12, K.PAPER, 'ma');
   txt(320, 166, `累计绩效 ${S.pay} 分 · 误判单 ${S.cites} 张`, 12, K.PAPER, 'ma');
   txt(320, 208, grade, 10, K.GREY, 'ma');
+  const score = S.cites === 0 ? '月考数学平均分 92 · 年级第一' : S.cites <= 3 ? '月考数学平均分 84 · 稳中有升' : '月考数学平均分 71 · 有学生原形毕露';
+  txt(320, 232, score, 10, K.PAPER, 'ma');
   const r = restartBtn();
   if (t > 1.2) {
     rect(...r, 'rgb(52,48,44)');
