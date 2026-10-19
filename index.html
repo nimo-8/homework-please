@@ -399,28 +399,33 @@ class Citation {
   }
 }
 
-const RULES = [
-  { day: 1, page: 0, key: 'region', head: '§1 只收本班学生的作业', subs: ['本班：初三(2)班', '别班作业：退回原班'] },
-  { day: 2, page: 0, key: 'info', head: '§2 信息须与本人一致', subs: ['姓名、学号：与学生证一致', '日期：必须当天', '错题过半：重做', '补交旧作业：无效（须附假条）'] },
-  { day: 2, page: 0, key: 'recite', head: '§3 抽背：有疑点才能抽', subs: ['背不出：请家长'] },
-  { day: 3, page: 1, key: 'real', head: '§4 作业须真实', subs: ['禁止打印代写', '禁止抄袭（错处雷同即实锤）', '家长签字须真实'] },
-  { day: 4, page: 1, key: 'xray', head: '§5 课桌须干净', subs: ['违禁：手机、游戏机、漫画', '搜课桌：点可疑物品即查'] },
-  { day: 5, page: 2, key: 'note', head: '§6 代写产业链：一律上报', subs: ['往来小纸条 = 实锤', '本子批次、字迹雷同要警觉', '宣称「涌现」：按代写论处'] },
-];
+// —— 判例法：班规不再是预发的，每查获一类蒙混，自动立法一条（涌现） ——
+const LAW_DEFS = {
+  region: { head: '§1 只收本班学生的作业', subs: ['本班：初三(2)班', '别班作业：退回原班'] },
+  info: { head: '§2 信息须与本人一致', subs: ['姓名、学号：与学生证一致', '日期：必须当天', '错题过半：重做'] },
+  recite: { head: '§3 抽背：有疑点才能抽', subs: ['背不出：请家长'] },
+  real: { head: '§4 作业须真实', subs: ['禁止打印代写', '禁止抄袭（错处雷同即实锤）', '家长签字须真实'] },
+  xray: { head: '§5 课桌须干净', subs: ['违禁：手机、游戏机、漫画'] },
+  note: { head: '§6 代写产业链：一律上报', subs: ['往来小纸条 = 实锤', '宣称「涌现」：按代写论处'] },
+};
 
 class Rulebook {
   constructor(day) {
     this.day = day; this.w = 200;
-    const rules = RULES.filter((r) => r.day <= day);
-    this.npages = day >= 5 ? 3 : (day >= 3 ? 2 : 1);
+    const laws = Object.values(S.laws || {}).sort((a, b) => a.case - b.case);
+    const per = 3;
+    this.npages = Math.max(1, Math.ceil(laws.length / per));
     this.pages = [];
     for (let p = 0; p < this.npages; p++) {
       const L = [];
-      for (const r of rules.filter((q) => q.page === p)) {
-        L.push({ s: r.head, size: 10, col: r.day === day ? K.RED_D : K.TEXT, key: r.key, isNew: r.day === day });
-        for (const s of r.subs) L.push({ s, size: 8, col: K.TEXT_L, key: r.key });
+      for (const law of laws.slice(p * per, p * per + per)) {
+        L.push({ s: law.head, size: 10, col: law.day === day ? K.RED_D : K.TEXT, key: law.k, isNew: law.day === day });
+        for (const sub of law.subs) L.push({ s: sub, size: 8, col: K.TEXT_L, key: law.k });
       }
-      if (p === this.npages - 1) L.push({ s: '§12 只看作业，不看脸', size: 8, col: K.TEXT_L, key: null });
+      if (p === this.npages - 1) {
+        L.push({ s: '§12 只看作业，不看脸', size: 8, col: K.TEXT_L, key: null });
+        L.push({ s: laws.length ? '已立法 ' + laws.length + ' 条 · 未知情形见招拆招' : '班规虚位以待：查获一类蒙混，自动立法一条', size: 8, col: K.GREY_D, key: null });
+      }
       let y = 22;
       const fields = {};
       for (const row of L) {
@@ -433,7 +438,7 @@ class Rulebook {
       }
       this.pages.push({ rows: L, fields, h: y + 6 });
     }
-    this.h = Math.max(...this.pages.map((p) => p.h));
+    this.h = Math.max(...this.pages.map((p) => p.h), 92);
     this.page = this.npages - 1;
     this.icon = ['book', C.BOOK];
   }
@@ -445,18 +450,13 @@ class Rulebook {
     rect(x, y, x + w - 1, y + h - 1, K.BOOK);
     rect(x + 3, y + 3, x + w - 4, y + h - 4, K.PAPER);
     rect(x + 3, y + 3, x + w - 4, y + 16, K.BOOK_L);
-    txt(x + 8, y + 5, '班规 · 作业检查', 10, K.PAPER);
+    txt(x + 8, y + 5, '班规 · 判例汇编', 10, K.PAPER);
     if (this.npages > 1) {
       const tab = [this.w - 56, 3, this.w - 4, 16];
       rect(x + tab[0], y + tab[1], x + tab[2], y + tab[3], K.BOOK);
       txt(x + tab[2] - 4, y + 6, `第${this.page + 1}/${this.npages}页 ▶`, 8, K.PAPER, 'ra');
     } else txt(x + w - 8, y + 6, `DAY ${this.day}`, 8, K.PAPER, 'ra');
     for (const r of this.pages[this.page].rows) {
-      if (r.s.includes('|') && r.s.indexOf('|') < 8) {
-        const [a, b, c] = r.s.split('|');
-        txt(x + 12, y + r.y, a, 8, r.col); txt(x + 52, y + r.y, b, 8, r.col); txt(x + 150, y + r.y, c, 8, r.col);
-        continue;
-      }
       txt(x + 8, y + r.y, r.s, r.size, r.col);
       if (r.isNew) {
         const nx = x + 10 + tw(r.s, r.size);
@@ -466,6 +466,7 @@ class Rulebook {
     }
   }
 }
+
 function smallIcon(kind, color, x, y) {
   if (kind === 'book') { rect(x, y, x + 18, y + 12, K.INK); rect(x + 1, y + 1, x + 17, y + 11, rgb3(color)); pt(x + 9, y + 6, K.GOLD); }
   else {
@@ -510,7 +511,7 @@ const PAGE_RANGES = ['P32-P35', 'P21-P24', 'P40-P43', 'P12-P15', 'P8-P11'];
 const SURNAMES = ['王', '李', '张', '刘', '陈', '赵', '周', '吴', '郑', '孙'];
 const GIVEN = ['小明', '华', '伟', '静', '磊', '涛', '悦', '杰', '雪', '强', '丽', '军'];
 const NEWS = {
-  1: { h1: '明日早读收作业！', sub: '教导处：各班严查作业质量，杜绝蒙混', h2: '提醒：别班作业不要代收，一律退回原班', icon: 'gate' },
+  1: { h1: '明日早读收作业！', sub: '教导处：班规不再预先印发，判例即法律', h2: '新任班主任上岗：每查获一类蒙混，自动立法一条', icon: 'gate' },
   2: { h1: '新规：信息须与本人一致', sub: '有学生连姓名学号一起抄，被当场识破', h2: '震惊！某作业本姓名与学生证对不上', icon: 'clock' },
   3: { h1: '家长签字造假泛滥', sub: '教导处：打印代写、抄袭雷同、伪造签字一律重做', h2: '某家长反映：自己三年没签过字', icon: 'plane' },
   4: { h1: '突击检查课桌！', sub: '教导处：违禁品零容忍，班主任随堂抽查', h2: '家长群炸了：手机也要没收吗', icon: 'clock' },
@@ -557,18 +558,18 @@ function makeHomework(o) {
 }
 
 // —— 矛盾模板 ——
-const REGION_ISSUE = (cls, ask) => ({ pairs: [['hw.班级', 'rule.region'], ['st.header', 'rule.region']], title: '非本班作业', sub: `封面班级：${cls}`, ask });
-const ID_ISSUE = (ask) => ({ pairs: [['st.学号', 'hw.学号'], ['st.姓名', 'hw.学号'], ['st.姓名', 'hw.姓名']], title: '信息不符 DISCREPANCY', sub: '学生证与作业本对不上', ask });
-const DATE_ISSUE = (d, ask) => ({ pairs: [['hw.日期', 'rule.info'], ['st.姓名', 'hw.日期']], title: '日期不符 DISCREPANCY', sub: `作业日期：${d}`, ask });
-const PRINTED_ISSUE = { pairs: [['hw.科目', 'rule.real'], ['hw.签字', 'rule.real']], title: '代写嫌疑', sub: '正文为打印体，疑似网购代写',
+const REGION_ISSUE = (cls, ask) => ({ law: 'region', pairs: [['hw.班级'], ['hw.班级', 'st.header'], ['hw.班级', 'rule.region'], ['st.header', 'rule.region']], title: '非本班作业', sub: `封面班级：${cls}`, ask });
+const ID_ISSUE = (ask) => ({ law: 'info', pairs: [['st.学号', 'hw.学号'], ['st.姓名', 'hw.学号'], ['st.姓名', 'hw.姓名']], title: '信息不符 DISCREPANCY', sub: '学生证与作业本对不上', ask });
+const DATE_ISSUE = (d, ask) => ({ law: 'info', pairs: [['hw.日期'], ['st.姓名', 'hw.日期'], ['hw.日期', 'rule.info']], title: '日期不符 DISCREPANCY', sub: `作业日期：${d}`, ask });
+const PRINTED_ISSUE = { law: 'real', pairs: [['hw.科目', 'hw.日期'], ['hw.科目', 'rule.real'], ['hw.签字', 'rule.real']], title: '代写嫌疑', sub: '正文为打印体，疑似网购代写',
   ask: [['C', '这作业怎么是打印的？'], ['E', '……我练字练得太工整了。', { expr: 'nervous', sweat: true }]] };
-const COPY_ISSUE = { pairs: [['hw.页数', 'rule.real'], ['hw.姓名', 'rule.real']], title: '抄袭实锤', sub: '错题与上一位交的一模一样（含错别字）',
+const COPY_ISSUE = { law: 'real', pairs: [['hw.页数', 'hw.姓名'], ['hw.页数', 'rule.real'], ['hw.姓名', 'rule.real']], title: '抄袭实锤', sub: '错题与上一位交的一模一样（含错别字）',
   ask: [['C', '连错别字都一样？'], ['E', '……英雄所见略同？', { expr: 'grin', sweat: true }]] };
-const OLD_ISSUE = (d) => ({ pairs: [['hw.日期', 'rule.real']], title: '旧作业充数', sub: `日期：${d}，上周的`,
+const OLD_ISSUE = (d) => ({ law: 'real', pairs: [['hw.日期'], ['hw.日期', 'rule.real']], title: '旧作业充数', sub: `日期：${d}，上周的`,
   ask: [['C', '这是上周的作业。'], ['E', '……你不记得了吗？补交也算交吧？', { expr: 'nervous', sweat: true }]] });
-const SIGN_ISSUE = { pairs: [['hw.签字', 'rule.real'], ['st.姓名', 'hw.签字']], title: '签字可疑', sub: '家长签字笔迹稚嫩，像自己签的',
+const SIGN_ISSUE = { law: 'real', pairs: [['hw.签字', 'rule.real'], ['st.姓名', 'hw.签字']], title: '签字可疑', sub: '家长签字笔迹稚嫩，像自己签的',
   ask: [['C', '这是你爸签的？'], ['E', '……我爸写字就这样！', { expr: 'nervous', sweat: true }]] };
-const TELL = (say, sub, ask) => ({ say, title: '可疑：话里有破绽', sub, ask });
+const TELL = (say, sub, ask) => ({ law: 'recite', say, title: '可疑：话里有破绽', sub, ask });
 const RANDOM_TELLS = [
   ['我写到十二点呢。', '可作业日期是三天前',
     [['C', '写到十二点？这本是前天的。'], ['E', '……啊？那我再看看。', { expr: 'nervous', sweat: true }]]],
@@ -728,7 +729,7 @@ const DESK_ITEMS = {
   console: { key: 'xr.游戏机', label: '游戏机 · 还是热的', type: 'console' },
   manga: { key: 'xr.漫画', label: '漫画 · 第 27 册夹在数学里', type: 'manga' },
 };
-const DESK_ISSUE = (it) => ({
+const DESK_ISSUE = (it) => ({ law: 'xray',
   pairs: [[it.key], [it.key, 'rule.xray']], title: '课桌违禁', sub: it.label,
   ask: [['C', '这个是什么？'], ['E', '……这不是我的。', { expr: 'shock', sweat: true }]],
 });
@@ -746,7 +747,7 @@ function noteStudent() {
   e.docs.push({ key: 'note', doc: new Note(['兄弟，下周的周记', '也帮我写了，老价钱']) });
   e.ok = ['deny']; e.reason = '作业代写实锤';
   e.intro = [['E', '老师，作业交齐了。']];
-  e.issues = [{ pairs: [['note.内容', 'rule.real']], title: '代写往来条', sub: '「兄弟，下周的周记也帮我写了，老价钱」',
+  e.issues = [{ law: 'note', pairs: [['note.内容'], ['note.内容', 'rule.real']], title: '代写往来条', sub: '「兄弟，下周的周记也帮我写了，老价钱」',
     ask: [['C', '这张条子怎么解释？'], ['E', '……那是别人的字！', { expr: 'nervous', sweat: true }]] }];
   e.react = { deny: [['E', '条子没收就行……', { expr: 'sad' }]] };
   return e;
@@ -834,13 +835,13 @@ function buildQueue(day) {
 
 // ══════════════ 7. 全局状态 ══════════════
 let canvasEl, F, now = 0;
-const S = { day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {} };
+const S = { day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {}, laws: {} };
 let B = null;
 const ptr = { x: 320, y: 180, mouse: false, down: false };
 let drag = null;
 let scene = 'boot', sceneT0 = 0;
 const st = () => now - sceneT0;
-function saveGame() { try { localStorage.setItem('ipc_save', JSON.stringify({ day: S.day, pay: S.pay, cites: S.cites })); } catch (e) {} }
+function saveGame() { try { localStorage.setItem('ipc_save', JSON.stringify({ day: S.day, pay: S.pay, cites: S.cites, laws: S.laws || {} })); } catch (e) {} }
 function loadGame() { try { const d = JSON.parse(localStorage.getItem('ipc_save')); if (d && d.day) Object.assign(S, d); } catch (e) {} }
 function clearSave() { try { localStorage.removeItem('ipc_save'); } catch (e) {} }
 
@@ -946,7 +947,7 @@ function handDocs(e) {
   }
   e.handed = true;
   if (!B.ruleInst) { B.ruleInst = { key: 'rule', doc: new Rulebook(S.day), owner: 'me', x: 470, y: 300, big: false, stamp: null }; B.docs.push(B.ruleInst); }
-  if (S.day === 1 && !S.tut.flip) { S.tut.flip = true; flashMsg('点作业本翻到题目页，逐题批改'); }
+  if (S.day === 1 && !S.tut.flip) { S.tut.flip = true; flashMsg('点作业本批改；『?检查』点两处矛盾立法'); }
   if (e.spec.after) runSteps(e.spec.after);
 }
 
@@ -1116,6 +1117,14 @@ function showIssue(issue) {
   e.suspect = true;
   SFX.play('discrepancy');
   e.found.add(issue);
+  const lk = issue.law;
+  if (lk && LAW_DEFS[lk] && !S.laws[lk]) {
+    S.laws[lk] = Object.assign({ k: lk, day: S.day, case: Object.keys(S.laws).length + 1 }, LAW_DEFS[lk]);
+    saveGame();
+    if (B.ruleInst) B.ruleInst.doc = new Rulebook(S.day);
+    later(0.6, () => { if (B) flashMsg('新班规诞生：' + LAW_DEFS[lk].head); });
+    later(0.65, () => SFX.play('coin'));
+  }
 }
 function inspectClick(x, y) {
   const I = B.insp;
@@ -1661,7 +1670,7 @@ function drawNewsIcon(kind, cx, cy) {
 }
 function initSummary() {
   S.pay += B.pay;
-  try { localStorage.setItem('ipc_save', JSON.stringify({ day: Math.min(S.day + 1, LAST_DAY), pay: S.pay, cites: S.cites })); } catch (e) {}
+  try { localStorage.setItem('ipc_save', JSON.stringify({ day: Math.min(S.day + 1, LAST_DAY), pay: S.pay, cites: S.cites, laws: S.laws || {} })); } catch (e) {}
 }
 function drawSummary(t) {
   rect(0, 0, W - 1, H - 1, K.INK);
