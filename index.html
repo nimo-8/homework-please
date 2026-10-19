@@ -105,7 +105,7 @@ function drawCursorPx(pat, x, y) {
 }
 
 // ══════════════ 2. 像素字管线：4 倍绘制 → 最近邻降采样 ══════════════
-const PXK = 4;
+const PXK = 6;
 const [MEAS, MG] = makeCanvas(8, 8);
 const FONT_STACK = '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif';
 const wCache = new Map(), tCache = new Map();
@@ -136,6 +136,7 @@ function textCanvas(s, size, col) {
   g.fillStyle = col;
   g.fillRect(0, 0, cv.width, cv.height);
   const [out, og] = makeCanvas(w, h);
+  og.imageSmoothingEnabled = true; og.imageSmoothingQuality = 'high';
   og.drawImage(cv, 0, 0, w, h);
   tCache.set(key, out);
   return out;
@@ -513,7 +514,7 @@ const NEWS = {
   2: { h1: '新规：信息须与本人一致', sub: '有学生连姓名学号一起抄，被当场识破', h2: '震惊！某作业本姓名与学生证对不上', icon: 'clock' },
   3: { h1: '家长签字造假泛滥', sub: '教导处：打印代写、抄袭雷同、伪造签字一律重做', h2: '某家长反映：自己三年没签过字', icon: 'plane' },
   4: { h1: '突击检查课桌！', sub: '教导处：违禁品零容忍，班主任随堂抽查', h2: '家长群炸了：手机也要没收吗', icon: 'clock' },
-  5: { h1: '代写产业链浮出水面', sub: '同一批作业流向 37 名学生，另有往来条为证', h2: '「代写作文包过批改」小广告进校园', icon: 'gate' },
+  5: { h1: '代写产业链浮出水面', sub: '同一批作业流向 37 名学生，另有往来条为证', h2: '有学生辩称：作业是自己「涌现」出来的，不算代写', icon: 'gate' },
   6: { h1: '周六补课照常', sub: '月考倒计时 2 天，作业先交再上课', h2: '有学生连夜赶了七天的作业', icon: 'plane' },
   7: { h1: '月考明日开考', sub: '班主任联席会：本周作业检查获通报表扬', h2: '教导处：功夫在平时，成绩见真章', icon: 'medal' },
 };
@@ -577,6 +578,8 @@ const RANDOM_TELLS = [
     [['C', '你哥做的，还是你做的？'], ['E', '……他的错题笔记借我“参考”了一下。', { expr: 'grin', sweat: true }]]],
   ['打印店老板手艺真好。', '作业是打印的还夸上了',
     [['C', '打印店？'], ['E', '……说漏了。手写的，全是手写的。', { expr: 'nervous', sweat: true }]]],
+  ['这作业是涌现出来的。', '“涌现”不是写作业的合法方式',
+    [['C', '涌现？'], ['E', '……就是，呃，它自己长出来的。我没碰过它。', { expr: 'nervous', sweat: true }]]],
 ];
 
 // ══════════════ 6. 每日队列 ══════════════
@@ -1575,6 +1578,7 @@ function drawTitle(t) {
   bigTitle(t);
   txt(320, 156, '请出示你的作业', 16, K.PAPER, 'ma');
   txt(320, 182, ' Papers, Please 式检查游戏 · 班主任版 ', 10, K.GREY, 'ma');
+  txt(320, 204, '疑似 AI 涌现现场 · 一个网址进去，一个游戏出来', 10, K.GREY_D, 'ma');
   const bl = Math.sin(t * 3) > -0.2;
   if (bl) txt(320, 240, '- 点击开始 -', 12, K.CLAUDE_L, 'ma');
   const hasSave = !!localStorage.getItem('ipc_save');
