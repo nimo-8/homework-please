@@ -365,6 +365,7 @@ class Card {
       if (m === true) { line(mx + 3, my + 7, mx + 6, my + 11, K.GREEN); line(mx + 6, my + 11, mx + 12, my + 3, K.GREEN); }
       else if (m === false) { line(mx + 3, my + 3, mx + 12, my + 12, K.RED); line(mx + 12, my + 3, mx + 3, my + 12, K.RED); }
     });
+    if (this.revealed) { const wn = this.ex.filter((e) => !e.ok).length; txt(x + w - 8, y + h - 12, '红笔批注：错 ' + wn + ' 题', 8, wn >= 2 ? K.RED : K.GREEN, 'ra'); }
     txt(x + 8, y + h - 12, '点答案批改：一下 ✓ 两下 ✗', 8, K.TEXT_L);
   }
   draw(x, y) {
@@ -878,13 +879,13 @@ function buildQueue(day) {
 
 // ══════════════ 7. 全局状态 ══════════════
 let canvasEl, F, now = 0;
-const S = { day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {}, laws: {} };
+const S = { day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {}, laws: {}, inv: {}, charm: 0, shopOffers: null, bought: [] };
 let B = null;
 const ptr = { x: 320, y: 180, mouse: false, down: false };
 let drag = null;
 let scene = 'boot', sceneT0 = 0;
 const st = () => now - sceneT0;
-function saveGame() { try { localStorage.setItem('ipc_save', JSON.stringify({ day: S.day, pay: S.pay, cites: S.cites, laws: S.laws || {} })); } catch (e) {} }
+function saveGame() { try { localStorage.setItem('ipc_save', JSON.stringify({ day: S.day, pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0 })); } catch (e) {} }
 function loadGame() { try { const d = JSON.parse(localStorage.getItem('ipc_save')); if (d && d.day) Object.assign(S, d); } catch (e) {} }
 function clearSave() { try { localStorage.removeItem('ipc_save'); } catch (e) {} }
 
@@ -896,6 +897,7 @@ const QUIZ_BTN = [126, 268, 166, 280];
 const INSPECT_BTN = [602, 322, 634, 354];
 const DRAWER_BTN = [566, 322, 598, 354];
 const DETECT_BTN = [494, 322, 526, 354];
+const HINT_BTN = [458, 322, 490, 354];
 const RULE_BTN = [530, 322, 562, 354];
 const ASK_BTN = [548, 140, 590, 162];
 const BANNER_BOX = [300, 134, 598, 170];
@@ -912,11 +914,14 @@ function startDay() {
     tray: { open: false, t: -9 }, presses: [],
     insp: { on: false, sel: [], banner: null },
     drawer: { on: false },
-    detect: { uses: S.day >= 3 ? 2 : 0, active: false },
+    detect: { uses: (S.day >= 3 ? 2 : 0) + (S.inv.detect || 0), active: false },
+    redPen: S.inv.redPen || 0,
+    hint: S.inv.hint || 0,
     ruleInst: null, ruleOpened: false, speakerT: -9,
-    pay: 5, correct: 0, total: 0, flash: null,
+    pay: 5 + (S.inv.raise || 0) * 2, correct: 0, total: 0, flash: null,
     ending: false, lastFinish: now,
   };
+  S.inv.detect = 0; S.inv.redPen = 0; S.inv.hint = 0; S.inv.raise = 0;
 }
 function later(dt, fn) { B.timers.push({ t: now + dt, fn }); }
 function runTimers() {
@@ -1032,6 +1037,11 @@ function leave(e) {
   if (good) { B.correct++; S.correct++; SFX.play('coin'); flashMsg(pick(['批完了。', '下一位。', '合格。'])); }
   else if (dec === 'approve') { S.wrongApprove = (S.wrongApprove || 0) + 1; }
   else if (dec === 'deny' || dec === 'detain') { S.wrongDeny = (S.wrongDeny || 0) + 1; }
+  else if ((S.charm || 0) > 0) {
+    S.charm--;
+    flashMsg('护身符发光，抵消了这次处罚');
+    SFX.play('coin');
+  }
   else {
     S.cites++; B.pay = Math.max(0, B.pay - 2);
     const why = e.spec.reason || '违反规则';
@@ -1104,7 +1114,11 @@ function hwRowAt(d, x, y) {
 }
 function hwClick(d, x, y) {
   const doc = d.doc;
-  if (!doc.flipEx) { doc.flipEx = true; SFX.play('paper', 0.7); return; }
+  if (!doc.flipEx) {
+    doc.flipEx = true;
+    if (B.redPen > 0 && !doc.revealed) { doc.revealed = true; B.redPen--; flashMsg('红笔：这本作业错 ' + doc.ex.filter((e) => !e.ok).length + ' 题'); }
+    SFX.play('paper', 0.7); return;
+  }
   const i = hwRowAt(d, x, y);
   if (i >= 0) {
     doc.marks[i] = doc.marks[i] === true ? false : (doc.marks[i] === false ? null : true);
@@ -1277,6 +1291,14 @@ function onUp(ev) {
 }
 function boothInput(x, y) {
   if (B.ending) return;
+  if (B.hint > 0 && inBox(x, y, HINT_BTN)) {
+    if (!B.ent || !B.ent.handed) { flashMsg('先叫一位学生进来，才能用提示'); return; }
+    B.hint--;
+    const unfound = B.ent.spec.issues.filter((is) => !B.ent.found.has(is));
+    if (unfound.length) { showIssue(pick(unfound)); flashMsg('同事凑过来小声说：看这里'); }
+    else B.insp.banner = { title: '同事：这位真没问题', sub: '（或者问题你已经自己找到了）', bad: false };
+    return;
+  }
   if (S.day >= 3 && B.detect.uses > 0 && inBox(x, y, DETECT_BTN)) { B.detect.active = !B.detect.active; SFX.play('select'); return; }
   if (B.detect.active) {
     let hitHw = null;
@@ -1357,10 +1379,11 @@ function sceneClick(x, y) {
   if (scene === 'boot') { go('title'); return; }
   if (scene === 'title') { titleClick(x, y); return; }
   if (scene === 'news' && st() > 0.6) { go('booth'); return; }
+  if (scene === 'shop') { shopClick(x, y); return; }
   if (scene === 'summary') {
     if (st() > 0.8) {
       if (S.day >= LAST_DAY) { go('end'); }
-      else { S.day++; saveGame(); go('daycard'); }
+      else { S.day++; saveGame(); go('shop'); }
     }
     return;
   }
@@ -1529,6 +1552,7 @@ function drawBoothBg() {
   }
   drawBtn(RULE_BTN, '班规');
   drawBtn(INSPECT_BTN, B.insp.on ? '退出' : '?检查', B.insp.on);
+  if (B.hint > 0) drawBtn(HINT_BTN, '提示' + B.hint, false);
   if (S.day >= 3 && B.detect.uses > 0) drawBtn(DETECT_BTN, 'AI检测' + B.detect.uses, B.detect.active);
   if (S.day >= 4) drawBtn(DRAWER_BTN, '搜课桌', B.drawer && B.drawer.on);
   // 班规书图标（合上时）
@@ -1771,7 +1795,7 @@ function drawNewsIcon(kind, cx, cy) {
 }
 function initSummary() {
   S.pay += B.pay;
-  try { localStorage.setItem('ipc_save', JSON.stringify({ day: Math.min(S.day + 1, LAST_DAY), pay: S.pay, cites: S.cites, laws: S.laws || {} })); } catch (e) {}
+  try { localStorage.setItem('ipc_save', JSON.stringify({ day: Math.min(S.day + 1, LAST_DAY), pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0 })); } catch (e) {}
 }
 function drawSummary(t) {
   rect(0, 0, W - 1, H - 1, K.INK);
@@ -1783,6 +1807,7 @@ function drawSummary(t) {
     ['批改正确', `${B.correct} 份`],
     ['批改全对', `${B.gradeOk || 0} 本`],
     ['立法进度', `${Object.keys(S.laws || {}).length}/7 条`],
+    ['护身符', `${S.charm || 0} 个`],
     ['误判单', `${B.total - B.correct} 张`],
     ['涌现企图', `${B.total - B.correct} 起`],
     ['当日绩效', `${B.pay} 分`],
@@ -1797,6 +1822,50 @@ function drawSummary(t) {
     txt(320, 250, '误判太多……明天去教导处写情况说明吧。', 10, K.RED_D, 'ma');
   }
   if (t > 1 && Math.sin(t * 3) > -0.2) txt(320, 296, S.day >= LAST_DAY ? '- 点击进入周末 -' : '- 点击开始明天 -', 10, K.TEXT_L, 'ma');
+}
+const SHOP_POOL = [
+  { name: 'AI 检测充能 +1', desc: ['明天 AI 检测仪', '多 1 次充能（当日有效）'], price: 3, buy: () => { S.inv.detect = (S.inv.detect || 0) + 1; } },
+  { name: 'AI 检测充能 +2', desc: ['明天 AI 检测仪', '多 2 次充能（当日有效）'], price: 5, buy: () => { S.inv.detect = (S.inv.detect || 0) + 2; } },
+  { name: '红笔 ×1', desc: ['明天翻开的第', '一本作业自动标出', '「错 X 题」'], price: 4, buy: () => { S.inv.redPen = (S.inv.redPen || 0) + 1; } },
+  { name: '同事提示 ×1', desc: ['明天可点「提示」', '按钮，同事直接', '指出一处问题'], price: 5, buy: () => { S.inv.hint = (S.inv.hint || 0) + 1; } },
+  { name: '护身符', desc: ['抵消一次误判处罚', '（永久持有，可叠加）'], price: 5, buy: () => { S.charm = (S.charm || 0) + 1; } },
+  { name: '加薪申请', desc: ['明天基础工资 +2 分'], price: 6, buy: () => { S.inv.raise = (S.inv.raise || 0) + 1; } },
+];
+const SHOP_GO = [250, 292, 390, 318];
+function shopBox(i) { return [140 + i * 120, 70, 140 + i * 120 + 112, 270]; }
+function shopClick(x, y) {
+  (S.shopOffers || []).forEach((o, i) => {
+    if (S.bought[i]) return;
+    if (inBox(x, y, shopBox(i)) && S.pay >= o.price) {
+      S.pay -= o.price; o.buy(); S.bought[i] = true;
+      SFX.play('coin'); flashShop('已购入：' + o.name);
+    } else if (inBox(x, y, shopBox(i))) { flashShop('余额不足'); SFX.play('stamp_no'); }
+  });
+  if (inBox(x, y, SHOP_GO)) go('daycard');
+}
+let shopFlash = null;
+function flashShop(s2) { shopFlash = { s: s2, t0: now }; }
+function w2c(x0, x1) { return Math.round((x0 + x1) / 2); }
+function drawShop(t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  rect(120, 30, 519, 332, K.PAPER);
+  rect(120, 30, 519, 50, K.RED_D);
+  txt(320, 36, '教导处小卖部', 14, K.WHITE, 'ma');
+  txt(320, 58, '第 ' + S.day + ' 天晨间 · 余额 ' + S.pay + ' 分', 10, K.TEXT_L, 'ma');
+  (S.shopOffers || []).forEach((o, i) => {
+    const [x0, y0, x1, y1] = shopBox(i);
+    const bought = S.bought[i], poor = S.pay < o.price;
+    rect(x0, y0, x1, y1, bought ? K.PAPER_D : K.PAPER);
+    outline(x0, y0, x1, y1, bought ? K.GREY_D : poor ? K.GREY_D : K.CLAUDE, 2);
+    txt(x0 + 8, y0 + 10, o.name, 10, bought ? K.GREY : K.TEXT);
+    o.desc.forEach((d2, j) => txt(x0 + 8, y0 + 30 + j * 12, d2, 8, K.TEXT_L));
+    if (bought) txt(w2c(x0, x1), y0 + 160, '已购入', 12, K.GREY, 'ma');
+    else txt(w2c(x0, x1), y0 + 160, o.price + ' 分', 12, poor ? K.GREY : K.ORANGE, 'ma');
+  });
+  rect(SHOP_GO[0], SHOP_GO[1], SHOP_GO[2], SHOP_GO[3], K.CLAUDE);
+  outline(SHOP_GO[0], SHOP_GO[1], SHOP_GO[2], SHOP_GO[3], K.OUTLINE);
+  txt(320, 298, '出发上班 ▶', 11, K.INK, 'ma');
+  if (shopFlash && now - shopFlash.t0 < 1.6) txt(320, 278, shopFlash.s, 9, 'rgba(180,46,40,' + (1 - (now - shopFlash.t0) / 1.6).toFixed(2) + ')', 'ma');
 }
 function restartBtn() { return [250, 288, 390, 314]; }
 function drawEnd(t) {
@@ -1843,6 +1912,7 @@ function go(name) {
   if (name === 'daycard') SFX.play('day_hit');
   if (name === 'news') { SFX.play('whoosh'); SFX.play('paper'); }
   if (name === 'summary') { SFX.play('sad'); initSummary(); }
+  if (name === 'shop') { const pool = shuffle(SHOP_POOL.slice()); S.shopOffers = pool.slice(0, 3); S.bought = [false, false, false]; SFX.play('coin'); }
   if (name === 'end') SFX.play('coin');
   if (name === 'over') SFX.play('stamp_no');
   if (name === 'booth') startDay();
@@ -1864,6 +1934,7 @@ function render() {
   else if (scene === 'news') drawNews(t);
   else if (scene === 'booth') drawBooth();
   else if (scene === 'summary') drawSummary(t);
+  else if (scene === 'shop') drawShop(t);
   else if (scene === 'end') drawEnd(t);
   else if (scene === 'over') drawOver(t);
   const g = canvasEl.getContext('2d');
