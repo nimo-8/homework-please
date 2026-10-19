@@ -526,7 +526,7 @@ const QUIZ = [
   ['谁知盘中餐，下一句？', '粒粒皆辛苦。'],
   ['把昨天学的课文背一段。', '……好、好的。'],
 ];
-const QUIZ_CONFUSED = ['呃……老师我肚子疼。', '我昨天明明背过的……', '这个……下课再背行吗？'];
+const QUIZ_CONFUSED = ['呃……老师我肚子疼。', '我昨天明明背过的……', '这个……下课再背行吗？', '这段课文是 AI 给我生成的，我没背过。'];
 const INTRO_LINES = ['月考临近，作业是第一道关。', '你是初三(2)班的班主任。', '批合格的，要站得住脚。', '想蒙混的，一个都别放过去。'];
 
 // —— 生成器 ——
@@ -580,6 +580,8 @@ const RANDOM_TELLS = [
     [['C', '打印店？'], ['E', '……说漏了。手写的，全是手写的。', { expr: 'nervous', sweat: true }]]],
   ['这作业是涌现出来的。', '“涌现”不是写作业的合法方式',
     [['C', '涌现？'], ['E', '……就是，呃，它自己长出来的。我没碰过它。', { expr: 'nervous', sweat: true }]]],
+  ['AI 说这题答案是 56。', 'AI 也会算错：8 × 7 ≠ 56',
+    [['C', 'AI 说的？它算给你看的，还是你抄的？'], ['E', '……它，呃，涌现出来的答案。', { expr: 'nervous', sweat: true }]]],
 ];
 
 // ══════════════ 6. 每日队列 ══════════════
@@ -746,6 +748,20 @@ function noteStudent() {
   return e;
 }
 
+function aiStudent() {
+  const name = randName(), no = randStuNo();
+  return {
+    voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
+    hello: '老师，我的作业全是 AI 写的，全对。', thanks: '……AI 也会错吗？',
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, printed: true, ex: makeEx(0) }) }],
+    primary: 'hw', ok: ['deny'], reason: 'AI 代写（打印体 · 非本人完成）',
+    intro: [['E', '老师，我用 AI 写的作业，效率很高。']],
+    issues: [{ pairs: [['hw.科目', 'rule.real'], ['hw.页数', 'rule.real']], title: 'AI 代写', sub: '打印体 · 声称 AI 生成',
+      ask: [['C', 'AI 写的算你写的吗？'], ['E', 'prompt 是我写的啊！想法是我的！', { expr: 'grin', sweat: true }]] }],
+    react: { deny: [['E', '那让 AI 来月考吧……', { expr: 'sad' }]] },
+  };
+}
+
 function sloppyStudent() {
   const name = randName(), no = randStuNo();
   return {
@@ -774,6 +790,7 @@ function buildQueue(day) {
     q.push(Math.random() < 0.5 ? otherClassStudent() : cleanStudent());
   } else if (day === 3) {
     q.push(printedStudent());
+    q.push(aiStudent());
     q.push(forgedSignStudent());
     q.push(oldHwStudent());
     q.push(sloppyStudent());
@@ -789,6 +806,7 @@ function buildQueue(day) {
   } else if (day === 5) {
     q.push(noteStudent());
     q.push(printedStudent());
+    q.push(aiStudent());
     q.push(sloppyStudent());
     q.push(copyStudent());
     q.push(drawerStudent());
@@ -1649,6 +1667,7 @@ function drawSummary(t) {
     ['批改正确', `${B.correct} 份`],
     ['批改全对', `${B.gradeOk || 0} 本`],
     ['误判单', `${B.total - B.correct} 张`],
+    ['涌现企图', `${B.total - B.correct} 起`],
     ['当日绩效', `${B.pay} 分`],
     ['累计绩效', `${S.pay} 分`],
     ['累计误判', `${S.cites} 张`],
