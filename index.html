@@ -338,8 +338,8 @@ function drawPhoto(x, y, seed, crayon = false) {
 }
 
 class Card {
-  constructor(rows, { title = '作业本', sub = 'HOMEWORK', color = C.PINK, colorD = C.PINK_D, valueX = 40, seal = true, printed = false, forged = false, ex = null } = {}) {
-    this.rows = rows; this.title = title; this.sub = sub; this.printed = printed; this.forged = forged;
+  constructor(rows, { title = '作业本', sub = 'HOMEWORK', color = C.PINK, colorD = C.PINK_D, valueX = 40, seal = true, printed = false, forged = false, ex = null, subj = 'math' } = {}) {
+    this.rows = rows; this.title = title; this.sub = sub; this.printed = printed; this.forged = forged; this.subj = subj;
     this.ex = ex; this.marks = (ex || []).map(() => null); this.flipEx = false;
     this.color = rgb3(color); this.colorD = rgb3(colorD); this.valueX = valueX;
     this.seal = seal;
@@ -353,7 +353,7 @@ class Card {
     const { w, h } = this;
     rect(x, y, x + w - 1, y + h - 1, this.colorD);
     rect(x + 1, y + 1, x + w - 2, y + h - 2, 'rgb(240,236,222)');
-    txt(x + 6, y + 5, '数学作业 · P32', 10, K.TEXT);
+    txt(x + 6, y + 5, (SUBJ_NAME[this.subj] || '数学') + '作业 · P32', 10, K.TEXT);
     txt(x + w - 6, y + 6, '封面 ◀', 8, K.TEXT_L, 'ra');
     rect(x + 6, y + 17, x + w - 7, y + 17, K.PAPER_D);
     this.ex.forEach((e, i) => {
@@ -563,12 +563,14 @@ function makeStudentID(name, no, sex, photoI) {
   });
 }
 function makeHomework(o) {
+  const dflt = daySubjectTier();
+  const subj = o.subj || dflt.subj, tier = o.tier || dflt.tier;
   const rows = [['班级', o.cls || OUR_CLASS], ['姓名', o.name], ['学号', o.no],
-    ['科目', '数学'], ['日期', o.date || todayStr()], ['签字', o.signed === false ? '未签' : '已签']];
+    ['科目', SUBJ_NAME[subj] || '数学'], ['日期', o.date || todayStr()], ['签字', o.signed === false ? '未签' : '已签']];
   return new Card(rows, {
     title: '作业本', sub: o.printed ? 'LASER PRINT' : 'HOMEWORK',
     color: o.printed ? [238, 236, 230] : [226, 202, 158], colorD: o.printed ? [210, 206, 198] : [198, 170, 122],
-    seal: false, valueX: 44, printed: !!o.printed, forged: !!o.forged, ex: o.ex || makeEx(),
+    seal: false, valueX: 44, printed: !!o.printed, forged: !!o.forged, ex: o.ex || makeEx(subj, tier), subj,
   });
 }
 
@@ -723,26 +725,76 @@ function tellStudent() {
   return e;
 }
 
-// —— 题库与批改（错题数只会是 0/1 或 3，永不出现 2，保证「过半」无歧义） ——
-const EXBANK = [
-  { q: '7 + 8 = ?', right: '15', wrong: '16' },
-  { q: '9 × 6 = ?', right: '54', wrong: '56' },
-  { q: '36 ÷ 4 = ?', right: '9', wrong: '8' },
-  { q: '23 − 9 = ?', right: '14', wrong: '15' },
-  { q: '8 × 7 = ?', right: '56', wrong: '54' },
-  { q: '45 + 27 = ?', right: '72', wrong: '71' },
-  { q: '63 ÷ 7 = ?', right: '9', wrong: '8' },
-  { q: '100 − 34 = ?', right: '66', wrong: '65' },
-];
+// —— 题库：学科 × 难度双维（错题数只会是 0/1 或 3，永不出现 2，保证「过半」无歧义） ——
+const SUBJ_NAME = { math: '数学', chinese: '语文', english: '英语' };
+const EXBANK2 = {
+  math: {
+    easy: [
+      { q: '7 + 8 = ?', right: '15', wrong: '16' },
+      { q: '9 × 6 = ?', right: '54', wrong: '56' },
+      { q: '36 ÷ 4 = ?', right: '9', wrong: '8' },
+      { q: '23 − 9 = ?', right: '14', wrong: '15' },
+      { q: '8 × 7 = ?', right: '56', wrong: '54' },
+      { q: '45 + 27 = ?', right: '72', wrong: '71' },
+    ],
+    hard: [
+      { q: '3 + 5 × 2 = ?', right: '13', wrong: '16' },
+      { q: '20 − 2 × 3 = ?', right: '14', wrong: '18' },
+      { q: '25 ÷ 5 × 3 = ?', right: '15', wrong: '5' },
+      { q: '18 ÷ 2 + 4 = ?', right: '13', wrong: '11' },
+      { q: '(3 + 5) × 2 = ?', right: '16', wrong: '11' },
+      { q: '2 + 3 × 4 − 5 = ?', right: '9', wrong: '15' },
+    ],
+  },
+  chinese: {
+    easy: [
+      { q: '「床前明月光」的作者', right: '李白', wrong: '杜甫' },
+      { q: '正确的字：再接再（　）', right: '厉', wrong: '励' },
+      { q: '「春眠不觉晓」下一句', right: '处处闻啼鸟', wrong: '花落知多少' },
+      { q: '正确的字：（　）不可失', right: '机', wrong: '激' },
+      { q: '「举头望明月」下一句', right: '低头思故乡', wrong: '疑是地上霜' },
+      { q: '正确的字：一如（　）往', right: '既', wrong: '即' },
+    ],
+    hard: [
+      { q: '正确的字：迫不（　）待', right: '及', wrong: '急' },
+      { q: '「海内存知己」下一句', right: '天涯若比邻', wrong: '千里共婵娟' },
+      { q: '正确的字：一诺千（　）', right: '金', wrong: '斤' },
+      { q: '「独在异乡为异客」下一句', right: '每逢佳节倍思亲', wrong: '遍插茱萸少一人' },
+      { q: '正确的字：饮（　）止渴', right: '鸩', wrong: '鸠' },
+      { q: '「欲穷千里目」下一句', right: '更上一层楼', wrong: '黄河入海流' },
+    ],
+  },
+  english: {
+    easy: [
+      { q: '「苹果」的英语', right: 'apple', wrong: 'apples' },
+      { q: '「书」的英语', right: 'book', wrong: 'books' },
+      { q: 'I ___ 12 years old', right: 'am', wrong: 'is' },
+      { q: '「猫」的英语', right: 'cat', wrong: 'dog' },
+      { q: '「红色」的英语', right: 'red', wrong: 'read' },
+      { q: 'She ___ a teacher', right: 'is', wrong: 'are' },
+    ],
+    hard: [
+      { q: 'I ___ to school yesterday', right: 'went', wrong: 'go' },
+      { q: 'He ___ finished it', right: 'has', wrong: 'have' },
+      { q: '「实际上」的英语', right: 'actually', wrong: 'actual' },
+      { q: 'There ___ many books', right: 'are', wrong: 'is' },
+      { q: 'Look! She ___ running', right: 'is', wrong: 'am' },
+      { q: 'I have two ___ (foot)', right: 'feet', wrong: 'footes' },
+    ],
+  },
+};
 const COPY_EX = [
   { q: '8 × 7 = ?', a: '54', ok: false },
   { q: '9 × 6 = ?', a: '56', ok: false },
   { q: '36 ÷ 4 = ?', a: '9', ok: true },
   { q: '23 − 9 = ?', a: '14', ok: true },
 ];
-function makeEx(nWrong = rint(0, 1)) {
-  const bank = shuffle(EXBANK.slice()).slice(0, 4);
+function makeEx(subj, tier, nWrong = rint(0, 1)) {
+  const bank = shuffle((EXBANK2[subj] || EXBANK2.math)[tier === 'hard' ? 'hard' : 'easy'].slice()).slice(0, 4);
   return bank.map((e, i) => ({ q: e.q, a: i < nWrong ? e.wrong : e.right, ok: i >= nWrong }));
+}
+function daySubjectTier() {
+  return { subj: S.day <= 3 ? 'math' : pick(['math', 'chinese', 'english']), tier: S.day <= 3 ? 'easy' : 'hard' };
 }
 
 // —— 课桌违禁 ——
@@ -783,7 +835,7 @@ function aiStudent() {
     pname: name,
     voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
     hello: '老师，我的作业全是 AI 写的，全对。', thanks: '……AI 也会错吗？',
-    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, printed: true, ex: makeEx(0) }) }],
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, printed: true, ex: makeEx('math', 'hard', 0) }) }],
     primary: 'hw', ok: ['deny'], reason: 'AI 代写（打印体 · 非本人完成）',
     intro: [['E', pick(['老师，我用 AI 写的作业，效率很高。', '老师，这是 AI 帮我涌现的作业。', 'AI 写的，我检查过，全对。'])]],
     issues: [{ pairs: [['hw.科目', 'rule.real'], ['hw.页数', 'rule.real']], title: 'AI 代写', sub: '打印体 · 声称 AI 生成',
@@ -810,12 +862,14 @@ function impersonatorStudent() {
 }
 
 function sloppyStudent() {
+  void 0;
   const name = randName(), no = randStuNo();
+  const d3 = daySubjectTier();
   return {
     pname: name,
     voice: 105 + rint(-10, 30), photoSeed: rint(1, 9999),
     hello: '老师，作业写完了……', thanks: '……哦。',
-    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, ex: makeEx(3) }) }],
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, ex: makeEx(d3.subj, d3.tier, 3) }) }],
     primary: 'hw', ok: ['deny'], reason: '错题过半（3/4）未重做',
     intro: [['E', '老师，作业写完了……']],
     issues: [],
