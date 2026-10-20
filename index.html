@@ -1144,7 +1144,7 @@ const GUIDE_STEPS = [
   { key: 'grade', text: '③ 先点一下作业本翻到题目页，再点每行答案批改',
     sub: '每行三态循环：未批 → ✓ → ✗。错题数永远不是 2，所以「错一半」不会含糊',
     box: () => { const d = mainDoc(); return d ? [d.x + 4, d.y + 16, d.x + d.doc.w - 4, d.y + 112] : null; }, pad: 6 },
-  { key: 'inspect', text: '④ 点右下角「?检查」，进入比对模式',
+  { key: 'inspect', text: '④ 点右下角「比对」，进入比对模式',
     sub: '比对模式里才能点证件、作业上的字段做对照；平时点它们只是拖动',
     box: () => INSPECT_BTN, pad: 12 },
   { key: 'pair', text: '⑤ 依次点两个字段（或点单处疑点），找出矛盾',
@@ -1360,7 +1360,7 @@ function handDocs(e) {
     if (e.sweatT === null) e.sweatT = now + 0.8;
   }
   if (!B.ruleInst) { B.ruleInst = { key: 'rule', doc: new Rulebook(S.day), owner: 'me', x: 470, y: 300, big: false, stamp: null }; B.docs.push(B.ruleInst); }
-  if (S.day === 1 && !S.tut.flip) { S.tut.flip = true; if (!GUIDE.on) flashMsg('点作业本批改；『?检查』点两处矛盾定班规'); }
+  if (S.day === 1 && !S.tut.flip) { S.tut.flip = true; if (!GUIDE.on) flashMsg('点作业本批改；点「比对」查两处矛盾定班规'); }
   if (e.spec.after) runSteps(e.spec.after);
 }
 
@@ -2134,7 +2134,7 @@ function drawBoothBg() {
     drawBtn(DETAIN_BTN, '请家长', B.ent && B.ent.suspect);
   }
   drawBtn(RULE_BTN, '班规');
-  drawBtn(INSPECT_BTN, B.insp.on ? '退出' : '?检查', B.insp.on);
+  drawBtn(INSPECT_BTN, B.insp.on ? '退出' : '比对', B.insp.on);
   if (B.hint > 0) drawBtn(HINT_BTN, '提示' + B.hint, false);
   if (S.day >= 3 && B.detect.uses > 0) drawBtn(DETECT_BTN, 'AI检测' + B.detect.uses, B.detect.active);
   if (S.day >= 4) drawBtn(DRAWER_BTN, '搜课桌', B.drawer && B.drawer.on);
