@@ -918,6 +918,67 @@ function sloppyStudent() {
   };
 }
 
+// ══════════════ 6.5 规则生态：学生会学（B）+ 名声（D） ══════════════
+// 玩家放过的手法令学生更敢用；识破得多的类型会变成"名声"，学生转而避开它。
+const REP_NAMES = {
+  region: '跨班杀手', info: '信息核对狂', recite: '抽背阎王',
+  real: '打假专家', xray: '搜桌狂魔', note: '纸条终结者', photo: '火眼金睛',
+};
+function myRep() {
+  const seen = (S.eco && S.eco.seen) || {};
+  let best = null, bv = 0;
+  for (const k in seen) if (seen[k] > bv) { bv = seen[k]; best = k; }
+  if (!best || bv < 3) return null;
+  return { key: best, name: REP_NAMES[best] || '老班主任', n: bv };
+}
+function ecoBump(kind, map) {
+  if (!S.eco) S.eco = { skipped: {}, seen: {}, deferred: {}, evolved: {}, bitten: null };
+  if (!S.eco[map]) S.eco[map] = {};
+  S.eco[map][kind] = (S.eco[map][kind] || 0) + 1;
+  // 识破 3 次 → 该手法进化（E）
+  if (map === 'seen' && S.eco.seen[kind] >= 3 && !S.eco.evolved[kind]) {
+    S.eco.evolved[kind] = true;
+    later(1.2, () => { if (B) { flashMsg('有学生开始改良这类手法了……'); SFX.play('discrepancy'); } });
+  }
+}
+const LAWTYPE_FACTORY = {
+  region: () => otherClassStudent(),
+  info: () => (Math.random() < 0.5 ? idMismatchStudent() : dateIssueStudent()),
+  recite: () => tellStudent(),
+  real: () => pick([printedStudent, aiStudent, copyStudent, oldHwStudent, forgedSignStudent])(),
+  xray: () => drawerStudent(pick(['phone', 'manga', 'console', 'earbuds', 'novel'])),
+  note: () => noteStudent(),
+  photo: () => impersonatorStudent(),
+};
+// B：按「被放过的次数」加权补进 1-2 个同类学生；名声类型会被学生避开
+function ecoStudents(day) {
+  const out = [];
+  if (day < 2) return out;
+  const skipped = (S.eco && S.eco.skipped) || {};
+  const entries = Object.entries(skipped).filter(([, v]) => v > 0);
+  if (!entries.length) return out;
+  const rep = myRep();
+  const pool = [];
+  for (const [k, v] of entries) {
+    const w = (rep && rep.key === k) ? Math.max(1, v - 1) : v;
+    for (let i = 0; i < Math.min(3, w); i++) pool.push(k);
+  }
+  const n = Math.min(2, Math.max(1, Math.floor(pool.length / 2)));
+  for (let i = 0; i < n; i++) {
+    const t = pool.length ? pick(pool) : null;
+    const f = t && LAWTYPE_FACTORY[t];
+    if (!f) continue;
+    try { const st = f(); if (st) out.push(st); } catch (e) {}
+  }
+  return out;
+}
+function ecoDecay() {
+  if (!S.eco || !S.eco.skipped) return;
+  for (const k in S.eco.skipped) {
+    S.eco.skipped[k] = Math.floor(S.eco.skipped[k] * 0.7);
+    if (S.eco.skipped[k] <= 0) delete S.eco.skipped[k];
+  }
+}
 function buildQueue(day) {
   const q = [];
   if (day === 1) {
@@ -969,12 +1030,25 @@ function buildQueue(day) {
     q.push(oldHwStudent());
   }
   if (day > 1) { const rest = shuffle(q.slice(1)); rest.forEach((sn, i) => { q[i + 1] = sn; }); }
+  // B：生态补人 —— 你放过的手法，学生会再试一次
+  const eco = ecoStudents(day);
+  for (const st of eco) {
+    const at = 1 + Math.floor(Math.random() * Math.max(1, q.length - 1));
+    q.splice(Math.min(at, q.length), 0, st);
+  }
   return q;
 }
 
 // ══════════════ 7. 全局状态 ══════════════
 let canvasEl, F, now = 0;
-const S = { day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {}, laws: {}, inv: {}, charm: 0, shopOffers: null, bought: [], gradeWrong: 0, ungraded: 0, fired: false };
+// eco：规则生态 —— 玩家怎么定规、放过什么，都会反过来塑造后面的学生
+//   skipped  {类型: 放过次数}   放过的手法令学生更敢试（B）
+//   seen     {类型: 识破次数}   决定名声与进化（D/E）
+//   deferred {类型: true}       发现过但没立规，之后不再重复询问
+//   evolved  {类型: true}       同类被识破 3 次后进化，线索变隐晦（E）
+//   bitten   当天被学生引用的班规（C）
+const S = { day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {}, laws: {}, inv: {}, charm: 0, shopOffers: null, bought: [], gradeWrong: 0, ungraded: 0, fired: false,
+  eco: { skipped: {}, seen: {}, deferred: {}, evolved: {}, bitten: null } };
 let B = null;
 const ptr = { x: 320, y: 180, mouse: false, down: false };
 let payView = null;   // 绩效数字的显示值（平滑滚动，不直接跳数）
@@ -1005,7 +1079,7 @@ function saveGame() {
       charm: S.charm || 0, gradeWrong: S.gradeWrong || 0, ungraded: S.ungraded || 0,
       fired: S.fired || false, tut: S.tut || {}, wrongApprove: S.wrongApprove || 0,
       wrongDeny: S.wrongDeny || 0, correct: S.correct || 0, total: S.total || 0,
-      slot: curSlot, savedAt: Date.now(),
+      eco: S.eco || {}, slot: curSlot, savedAt: Date.now(),
     }));
   } catch (e) {}
 }
@@ -1016,6 +1090,7 @@ function loadGame(n) {
   Object.assign(S, d);
   curSlot = slot;
   if (!S.tut) S.tut = {};
+  if (!S.eco) S.eco = { skipped: {}, seen: {}, deferred: {}, evolved: {}, bitten: null };
   return true;
 }
 function clearSave(n) {
@@ -1141,6 +1216,7 @@ function drawGuide(g) {
 const GUIDE_SKIP = [W - 58, 0, W, 46];
 
 function startDay() {
+  ecoDecay();   // 放过的把戏每天衰减一点，避免滚雪球
   B = {
     queue: buildQueue(S.day), idx: 0, ent: null, docs: [], lines: [], timers: [],
     tray: { open: false, t: -9 }, presses: [],
@@ -1155,7 +1231,7 @@ function startDay() {
   };
   S.inv.detect = 0; S.inv.redPen = 0; S.inv.hint = 0; S.inv.raise = 0;
 }
-function later(dt, fn) { B.timers.push({ t: now + dt, fn }); }
+function later(dt, fn) { if (!B || !B.timers) return; B.timers.push({ t: now + dt, fn }); }
 function runTimers() {
   const due = B.timers.filter((x) => x.t <= now);
   if (!due.length) return;
@@ -1191,6 +1267,43 @@ function runSteps(steps, delay = 0) {
   if (e) e.busyUntil = Math.max(e.busyUntil || 0, now + t);
   return t;
 }
+// ══════════════ C. 班规反噬：学生引用你写的条文 ══════════════
+const LAW_BITE_LINES = {
+  region: '您自己写的：只收本班。我就是 2 班的，您退不掉。',
+  info: '您写过「信息与本人一致」——我一致了，您再核一遍。',
+  recite: '您规定「有疑点才能抽背」，我现在没疑点吧？',
+  real: '您说过「签字须真实」——这是真签的，只是签得难看。',
+  xray: '您写的是「课桌须干净」——桌子干净，东西在我兜里。',
+  note: '您只写了「小纸条算实锤」，可这不是纸条，是便签。',
+  photo: '您只要求「证件照对上人」——对上了，就是换了个发型。',
+};
+function tryLawBite(spec) {
+  if (!spec || !spec.issues || !spec.issues.length) return false;
+  if (!S.eco) return false;
+  if (S.eco.bitten && S.eco.bitten.day === S.day) return false;
+  for (const is of spec.issues) {
+    const lk = is.law;
+    if (!lk || !S.laws[lk]) continue;
+    // E：这类手法被识破 3 次后会「进化」，更会钻规则空子
+    const chance = (S.eco.evolved && S.eco.evolved[lk]) ? 0.7 : 0.34;
+    if (Math.random() > chance) continue;
+    const idx = spec.issues.indexOf(is);
+    if (idx < 0) continue;
+    spec.issues.splice(idx, 1);                    // 这条矛盾被"合法化"，不能再据此判错
+    if (!spec.ok.includes('approve')) spec.ok.push('approve');
+    S.eco.bitten = { lk, day: S.day };
+    later(1.5, () => {
+      if (!B || !B.ent) return;
+      say('E', LAW_BITE_LINES[lk] || '您自己定的规矩，我可照着做了。');
+      flashMsg('学生搬出了你立的班规 —— 这次不能按那条判');
+      SFX.play('discrepancy');
+      haptic([20, 30, 20]);
+    });
+    return true;
+  }
+  return false;
+}
+
 function newEntrant(spec) {
   return {
     spec, tEnter: now + 0.35, phase: 'enter',
@@ -1208,6 +1321,8 @@ function callNext() {
   SFX.play('intercom');
   say('C', '下一位！');
   const spec = B.queue[B.idx++];
+  tryLawBite(spec);   // C：班规可能被学生反过来用
+  tryLawClash();      // F：两条班规在同一案子上打架
   const e = newEntrant(spec);
   B.ent = e;
   for (let i = 0; i < 4; i++) later(0.41 + i * 0.19, () => SFX.play('step'));
@@ -1326,6 +1441,12 @@ function leave(e) {
     if (beforeOV < 4 && afterOV >= 4) later(0.5, () => { if (B) { flashMsg('教导主任预警 I：作业没批就盖章，主任记了一笔'); SFX.play('discrepancy'); } });
     else if (beforeOV < 7 && afterOV >= 7) later(0.6, () => { if (B) { flashMsg('教导主任预警 II：好几份没批就交了，绩效扣 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
     if (beforeOV < 10 && afterOV >= 10) later(0.7, () => { if (B) { flashMsg('教导主任预警 III：最后通牒——不批作业就等着调岗'); B.shake = now; SFX.play('discrepancy'); } });
+  }
+  // B：没查出来就放走的蒙混，会被学生学去（下次更常见）
+  if (e && e.spec && e.spec.issues) {
+    for (const is of e.spec.issues) {
+      if (is.law && !e.found.has(is)) ecoBump(is.law, 'skipped');
+    }
   }
   B.lastVerdict = dec || 'skip';
   if (e.spec.react && e.spec.react[dec]) runSteps(e.spec.react[dec]);
@@ -1500,6 +1621,65 @@ function matchIssue(keys) {
   }
   return null;
 }
+// ══════════════ F. 班规冲突：两条规矩在同一个案子上打架 ══════════════
+const LAW_CLASHES = [
+{ a: 'info', b: 'real', q: '上周的作业、今天的签字。「日期须当天」和「签字须真实」该按哪条？' },
+{ a: 'recite', b: 'photo', q: '证件照和本人对不上，学生又支支吾吾。先抽背，还是按冒用证件办？' },
+];
+function tryLawClash() {
+if (!S.eco || !S.laws) return false;
+if (S.eco.clashedDay === S.day) return false;
+for (const c of LAW_CLASHES) {
+  if (!S.laws[c.a] || !S.laws[c.b]) continue;
+  if (Math.random() > 0.45) continue;
+  S.eco.clashedDay = S.day;
+  B.lawClash = { c, t0: now };
+  SFX.play('slip');
+  haptic([30, 40, 30]);
+  return true;
+}
+return false;
+}
+const CLASH_BOX = { a: [146, 252, 312, 284], b: [328, 252, 494, 284] };
+function drawLawClash() {
+const cl = B.lawClash;
+if (!cl) return;
+const c = cl.c;
+const A = LAW_DEFS[c.a], Bb = LAW_DEFS[c.b];
+rect(0, 0, W - 1, H - 1, 'rgba(8,6,6,0.74)');
+rect(128, 68, 512, 298, K.PAPER);
+rect(128, 68, 512, 100, 'rgb(152,58,46)');
+txt(320, 74, '班规打架了', 14, K.WHITE, 'ma');
+txt(320, 112, c.q, 9, K.TEXT, 'ma');
+txt(320, 140, '同一件事，两条班规给出相反的结论。只能留下一条。', 8, K.TEXT_L, 'ma');
+// 两条候选
+txt(229, 168, A.head, 9, K.RED_D, 'ma');
+txt(411, 168, Bb.head, 9, 'rgb(60,96,150)', 'ma');
+const hotA = inBox(ptr.x, ptr.y, CLASH_BOX.a), hotB = inBox(ptr.x, ptr.y, CLASH_BOX.b);
+rect(CLASH_BOX.a[0], CLASH_BOX.a[1], CLASH_BOX.a[2], CLASH_BOX.a[3], hotA ? K.RED : shade(K.RED, 0.82));
+txt(229, 268, '留这条', 10, K.WHITE, 'ma');
+rect(CLASH_BOX.b[0], CLASH_BOX.b[1], CLASH_BOX.b[2], CLASH_BOX.b[3], hotB ? 'rgb(70,110,168)' : 'rgb(52,84,132)');
+txt(411, 268, '留这条', 10, K.WHITE, 'ma');
+txt(320, 290, '（另一条从班规书里划掉，之后可以重新立）', 8, K.GREY_D, 'ma');
+}
+function lawClashResolve(keep) {
+const cl = B.lawClash;
+if (!cl) return;
+const c = cl.c;
+const drop = keep === 'a' ? c.b : c.a;
+const kept = keep === 'a' ? c.a : c.b;
+B.lawClash = null;
+delete S.laws[drop];
+if (S.eco && S.eco.deferred) delete S.eco.deferred[drop];
+if (S.eco && S.eco.skipped) S.eco.skipped[keep === 'a' ? c.a : c.b] = 0;
+saveGame();
+if (B.ruleInst) B.ruleInst.doc = new Rulebook(S.day);
+haptic([24, 30, 24]);
+floater('班规修订', 320, 190, '232,214,140');
+SFX.play('paper');
+flashMsg('保留了「' + LAW_DEFS[kept].head + '」，另一条已划掉');
+}
+
 function showIssue(issue) {
   const e = B.ent, I = B.insp;
   I.banner = { title: issue.title, sub: issue.sub, issue, ask: issue.ask && !e.asked.has(issue) && e.phase === 'here', bad: true };
@@ -1508,14 +1688,55 @@ function showIssue(issue) {
   haptic(24);
   floater('抓到疑点', 320, 206, '240,180,110');
   e.found.add(issue);
+  if (issue.law) ecoBump(issue.law, 'seen');   // D/E：识破次数决定名声与进化
   const lk = issue.law;
-  if (lk && LAW_DEFS[lk] && !S.laws[lk]) {
-    S.laws[lk] = Object.assign({ k: lk, day: S.day, case: Object.keys(S.laws).length + 1 }, LAW_DEFS[lk]);
-    saveGame();
-    if (B.ruleInst) B.ruleInst.doc = new Rulebook(S.day);
-    later(0.6, () => { if (B) flashMsg('新班规诞生：' + LAW_DEFS[lk].head); });
-    later(0.65, () => { haptic([28, 36, 28]); floater('新班规 +1', 320, 160, '232,214,140'); SFX.play('coin'); });
+// A. 立法变成「选择」：不再自动入册，弹卡让玩家决定立或不立
+  if (lk && LAW_DEFS[lk] && !S.laws[lk] && !(S.eco.deferred[lk])) {
+    if (!B.lawAsk) { B.lawAsk = { lk, t0: now }; SFX.play('slip'); }
   }
+}
+// 立为班规：以后同类可直接判定，但学生会学（生态侧记录）
+function lawEnact(lk) {
+  if (!lk || !LAW_DEFS[lk] || S.laws[lk]) return;
+  S.laws[lk] = Object.assign({ k: lk, day: S.day, case: Object.keys(S.laws).length + 1 }, LAW_DEFS[lk]);
+  saveGame();
+  if (B.ruleInst) B.ruleInst.doc = new Rulebook(S.day);
+  haptic([28, 36, 28]);
+  floater('新班规 +1', 320, 160, '232,214,140');
+  SFX.play('coin');
+  flashMsg('新班规诞生：' + LAW_DEFS[lk].head);
+}
+// 先记下不立：省了立规的副作用（学生进化），但学生会更敢用这招
+function lawDefer(lk) {
+  if (!lk) return;
+  if (!S.eco) S.eco = { skipped: {}, seen: {}, deferred: {}, evolved: {}, bitten: null };
+  S.eco.deferred[lk] = true;
+  S.eco.skipped[lk] = (S.eco.skipped[lk] || 0) + 1;
+  saveGame();
+  SFX.play('blip');
+  haptic(12);
+  flashMsg('先记着，不写成班规');
+}
+const LAW_ASK_BOX = { yes: [188, 246, 312, 278], no: [328, 246, 452, 278] };
+function drawLawAsk() {
+  const a = B.lawAsk;
+  if (!a) return;
+  const d = LAW_DEFS[a.lk];
+  if (!d) { B.lawAsk = null; return; }
+  rect(0, 0, W - 1, H - 1, 'rgba(10,8,7,0.66)');
+  rect(150, 76, 490, 288, K.PAPER);
+  rect(150, 76, 490, 106, K.RED);
+  txt(320, 82, '要不要写进班规？', 13, K.WHITE, 'ma');
+  txt(320, 116, d.head, 15, K.TEXT, 'ma');
+  d.subs.forEach((s, i) => txt(172, 142 + i * 16, '· ' + s, 9, K.TEXT_L));
+  txt(320, 200, '立了：以后同类一眼可判，但学生会学。', 9, K.TEXT_L, 'ma');
+  txt(320, 214, '不立：省事一天，但这类蒙混会更常见。', 9, K.CLAUDE_L || K.TEXT_L, 'ma');
+  const hotY = inBox(ptr.x, ptr.y, LAW_ASK_BOX.yes), hotN = inBox(ptr.x, ptr.y, LAW_ASK_BOX.no);
+  rect(LAW_ASK_BOX.yes[0], LAW_ASK_BOX.yes[1], LAW_ASK_BOX.yes[2], LAW_ASK_BOX.yes[3], hotY ? K.GREEN : shade(K.GREEN, 0.82));
+  txt(250, 262, '立为班规', 11, K.WHITE, 'ma');
+  rect(LAW_ASK_BOX.no[0], LAW_ASK_BOX.no[1], LAW_ASK_BOX.no[2], LAW_ASK_BOX.no[3], hotN ? 'rgb(84,76,70)' : 'rgb(62,56,52)');
+  outline(LAW_ASK_BOX.no[0], LAW_ASK_BOX.no[1], LAW_ASK_BOX.no[2], LAW_ASK_BOX.no[3], K.OUTLINE);
+  txt(390, 262, '先记下，不立', 11, K.GREY_L, 'ma');
 }
 function inspectClick(x, y) {
   const I = B.insp;
@@ -1621,6 +1842,19 @@ function onUp(ev) {
 }
 function boothInput(x, y) {
   if (B.ending) return;
+  // A. 立法询问弹卡：期间只认两个按钮
+  if (B.lawAsk) {
+    const lk = B.lawAsk.lk;
+    if (inBox(x, y, LAW_ASK_BOX.yes)) { B.lawAsk = null; lawEnact(lk); return; }
+    if (inBox(x, y, LAW_ASK_BOX.no)) { B.lawAsk = null; lawDefer(lk); return; }
+    return;
+  }
+  // F. 班规冲突：二选一
+  if (B.lawClash) {
+    if (inBox(x, y, CLASH_BOX.a)) { lawClashResolve('a'); return; }
+    if (inBox(x, y, CLASH_BOX.b)) { lawClashResolve('b'); return; }
+    return;
+  }
   // 新手引导：点右上角「跳过」直接结束
   if (GUIDE.on) {
     if (inBoxG(x, y, GUIDE_SKIP, 4)) { guideFinish(); return; }
@@ -2074,6 +2308,8 @@ function drawBooth() {
   drawBanner();
   drawFeedback();   // 点击涟漪 + 分数/判定飘字（画在游戏层，跟着 shake 一起抖）
   drawFlash();
+  drawLawAsk();     // 立法询问弹卡盖在最上层
+  drawLawClash();   // 班规冲突弹卡（二者不会同时出现）
   if (!B.ent && !B.ending && B.idx < B.queue.length) {
     txt(101, 272, '按左下角喇叭叫下一位', 8, K.GREY_D, 'ma');
   }
@@ -2130,6 +2366,7 @@ function resetRun() {
     day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {}, laws: {}, inv: {},
     charm: 0, shopOffers: null, bought: [], gradeWrong: 0, ungraded: 0,
     fired: false, wrongApprove: 0, wrongDeny: 0,
+    eco: { skipped: {}, seen: {}, deferred: {}, evolved: {}, bitten: null },
   });
   payView = 0;
 }
@@ -2411,6 +2648,9 @@ function drawSummary(t) {
   // 当日点评：按表现给不同的话，不再只有「误判太多」一种
   const [cmp, cmDire] = dailyComment();
   txt(320, 250, cmp, 10, cmDire ? K.RED_D : K.TEXT_L, 'ma');
+  // D：名声 —— 你抓得最多的那一类，会变成学生之间的传闻
+  const rep = myRep();
+  if (rep) txt(320, 268, `名声：${rep.name}（${rep.n} 次）· 学生开始绕开这类手法`, 9, K.AMBER, 'ma');
   if (t > 1 && Math.sin(t * 3) > -0.2) txt(320, 296, S.day >= LAST_DAY ? '- 点击进入周末 -' : '- 点击开始明天 -', 10, K.TEXT_L, 'ma');
 }
 const SHOP_POOL = [
