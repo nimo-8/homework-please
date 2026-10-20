@@ -180,8 +180,12 @@ function txt(x, y, s, size = 12, col = K.WHITE, anchor = 'la') {
   if (!s) return;
   const c = textCanvas(s, size, col);
   const w = tw(s, size);
+  // 原版只处理了 ma/ra，'rm'/'mm' 落到默认左对齐 → 右对齐文字全被画到画布外裁掉。
+  // 这里补齐 r/m 组合：r 右对齐、m 垂直居中。
   if (anchor === 'ma') x = Math.round(x - w / 2);
   else if (anchor === 'ra') x -= w;
+  else if (anchor === 'rm') { x = Math.round(x - w); y = Math.round(y - size * 0.58); }
+  else if (anchor === 'mm') { x = Math.round(x - w / 2); y = Math.round(y - size * 0.58); }
   G.drawImage(c, x - 2, y - 1);
 }
 function wrap(s, size, width) {
@@ -976,7 +980,7 @@ const ptr = { x: 320, y: 180, mouse: false, down: false };
 let drag = null;
 let scene = 'boot', sceneT0 = 0;
 const st = () => now - sceneT0;
-function saveGame() { try { localStorage.setItem('ipc_save', JSON.stringify({ day: S.day, pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0, gradeWrong: S.gradeWrong || 0, ungraded: S.ungraded || 0, fired: S.fired || false })); } catch (e) {} }
+function saveGame() { try { localStorage.setItem('ipc_save', JSON.stringify({ day: S.day, pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0, gradeWrong: S.gradeWrong || 0, ungraded: S.ungraded || 0, fired: S.fired || false, tut: S.tut || {} })); } catch (e) {} }
 function loadGame() { try { const d = JSON.parse(localStorage.getItem('ipc_save')); if (d && d.day) Object.assign(S, d); } catch (e) {} }
 function clearSave() { try { localStorage.removeItem('ipc_save'); } catch (e) {} }
 
@@ -998,6 +1002,88 @@ const QUEUE_FRONT = [292, 102];
 const BOOK_BOX = [500, 306, 556, 359];
 const DESK = [220, 128, W - 1, H - 1];
 const DESK_ARRIVE = [252, 140];
+
+// ══════════════ 8.5 新手引导 ══════════════
+// 设计：只在第 1 天首次进检查台时触发；每步高亮一块区域 + 顶部说明条，
+// 玩家做出正确动作才推进（点喇叭 / 拖本子 / 批改 / 开检查 / 选字段 / 盖章），可随时跳过。
+const GUIDE = { on: false, step: 0, t: 0 };
+const GUIDE_STEPS = [
+  { key: 'call', text: '① 先点左下角的喇叭，叫下一位学生进来',
+    box: () => SPEAKER, pad: 16 },
+  { key: 'drag', text: '② 等学生把作业递上来，按住作业本往桌面中间拖（放大才看得清题目）',
+    box: () => {
+      const d = mainDoc() || ((B && B.docs) ? B.docs.find((o) => o.key === 'hw') : null);
+      return d ? [d.x, d.y, d.x + d.doc.w, y2(d)] : DESK;
+    }, pad: 8 },
+  { key: 'grade', text: '③ 先点一下作业本翻到题目页，再点每行答案批改：未批 → ✓ → ✗',
+    box: () => { const d = mainDoc(); return d ? [d.x + 4, d.y + 16, d.x + d.doc.w - 4, d.y + 112] : null; }, pad: 6 },
+  { key: 'inspect', text: '④ 点右下角「?检查」，进入比对模式',
+    box: () => INSPECT_BTN, pad: 12 },
+  { key: 'pair', text: '⑤ 依次点两个字段（或点单处疑点），找出矛盾会自动立法',
+    box: null, pad: 0 },
+  { key: 'stamp', text: '⑥ 点右侧拉出印章栏盖章，再把作业本拖回给学生收下',
+    box: () => [W - 70, TRAY_Y0 - 14, W - 2, TRAY_Y1 + 16], pad: 8 },
+];
+function mainDoc() {
+  if (!B || !B.docs) return null;
+  for (const d of B.docs) if (d.key === 'hw' && d.big && d.owner !== 'cite') return d;
+  return null;
+}
+function guideStart() {
+  if (GUIDE.on || GUIDE.started) return;
+  if (S.tut && S.tut.guide) return;
+  if (S.day !== 1) return;
+  GUIDE.on = true; GUIDE.step = 0; GUIDE.t = now; GUIDE.started = true;
+}
+function guideDone(key) {
+  if (!GUIDE.on) return;
+  const s = GUIDE_STEPS[GUIDE.step];
+  if (!s || s.key !== key) return;
+  GUIDE.step++;
+  GUIDE.t = now;
+  SFX.play('select');
+  if (GUIDE.step >= GUIDE_STEPS.length) guideFinish();
+}
+function guideFinish() {
+  GUIDE.on = false;
+  if (!S.tut) S.tut = {};
+  S.tut.guide = true;
+  saveGame();
+  flashMsg('引导结束，按这个流程继续检查吧');
+}
+function drawGuide(g) {
+  const s = GUIDE_STEPS[GUIDE.step];
+  if (!s) return;
+  setCtx(g);
+  // 压暗全屏（用离屏帧挖洞，比 clearRect 更干净）
+  g.fillStyle = 'rgba(10,8,7,0.62)';
+  g.fillRect(0, 0, W, H);
+  const b = s.box ? s.box() : null;
+  if (b) {
+    const x0 = Math.max(0, Math.floor(b[0] - s.pad)), y0 = Math.max(0, Math.floor(b[1] - s.pad));
+    const x1 = Math.min(W, Math.ceil(b[2] + s.pad)), y1 = Math.min(H, Math.ceil(b[3] + s.pad));
+    g.drawImage(F, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+    const pulse = 0.5 + 0.5 * Math.sin(now * 4.5);
+    g.strokeStyle = `rgba(232,150,70,${0.55 + 0.45 * pulse})`;
+    g.lineWidth = 2;
+    g.strokeRect(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
+  }
+  // 顶部说明条
+  g.fillStyle = 'rgba(18,14,12,0.95)';
+  g.fillRect(0, 0, W, 26);
+  g.fillStyle = 'rgba(232,150,70,0.9)';
+  g.fillRect(0, 25, W, 1);
+  setCtx(g);
+  txt(10, 13, s.text, 11, K.PAPER, 'lm');
+  txt(W - 8, 13, '跳过 ▶', 10, K.GRAY, 'rm');
+  // 进度点
+  for (let i = 0; i < GUIDE_STEPS.length; i++) {
+    const cx = W / 2 - (GUIDE_STEPS.length - 1) * 5 + i * 10;
+    g.fillStyle = i <= GUIDE.step ? 'rgb(232,150,70)' : 'rgb(80,72,66)';
+    g.fillRect(cx - 2, 30, 4, 4);
+  }
+}
+const GUIDE_SKIP = [W - 58, 0, W, 26];
 
 function startDay() {
   B = {
@@ -1062,6 +1148,7 @@ const nextItem = () => B.queue[B.idx];
 function callNext() {
   SFX.play('click');
   if (!B || B.ent || B.ending || B.idx >= B.queue.length) return;
+  guideDone('call');
   B.speakerT = now;
   SFX.play('intercom');
   say('C', '下一位！');
@@ -1189,6 +1276,7 @@ function stamp(kind) {
   if (!pd || !pd.big) { flashMsg('先在桌上放好主作业，再盖章'); return; }
   B.tray.t = now;
   B.presses.push({ kind, t0: now });
+  guideDone('stamp');
   const [mx, my] = MARK_XY[kind];
   later(0.18, () => {
     SFX.play(kind === 'approve' ? 'stamp_ok' : 'stamp_no');
@@ -1235,6 +1323,7 @@ function hwClick(d, x, y) {
   if (i >= 0) {
     doc.marks[i] = doc.marks[i] === true ? false : (doc.marks[i] === false ? null : true);
     SFX.play('select');
+    guideDone('grade');
     return;
   }
   doc.flipEx = false; SFX.play('paper', 0.7);
@@ -1286,7 +1375,7 @@ function fieldAt(x, y) {
 function setInspect(on) {
   B.insp = { on, sel: [], banner: null };
   SFX.play(on ? 'select' : 'click');
-  if (on) S.tut.inspect = true;
+  if (on) { S.tut.inspect = true; guideDone('inspect'); }
 }
 function matchIssue(keys) {
   const e = B.ent;
@@ -1346,6 +1435,7 @@ function inspectClick(x, y) {
   if (k >= 0) { I.sel.splice(k, 1); return; }
   I.sel.push(hit);
   SFX.play('select');
+  guideDone('pair');
   if (I.sel.length === 1) {
     const single = matchIssue([hit.key]);
     if (single) { showIssue(single); return; }
@@ -1415,6 +1505,10 @@ function onUp(ev) {
 }
 function boothInput(x, y) {
   if (B.ending) return;
+  // 新手引导：点右上角「跳过」直接结束
+  if (GUIDE.on) {
+    if (inBoxG(x, y, GUIDE_SKIP, 4)) { guideFinish(); return; }
+  }
   if (B.hint > 0 && inBoxG(x, y, HINT_BTN, 7)) {
     if (!B.ent || !B.ent.handed) { flashMsg('先叫一位学生进来，才能用提示'); return; }
     B.hint--;
@@ -1471,6 +1565,7 @@ function dragMove(x, y) {
   const d = drag.d;
   if (Math.hypot(x - drag.start[0], y - drag.start[1]) > 3) drag.moved = true;
   if (!drag.moved) return;
+  guideDone('drag');
   if (x < DESK[0]) { d.big = false; d.x = x - 9; d.y = y - 6; return; }
   d.big = true;
   const g = drag.startedBig ? drag.off : [Math.min(30, d.doc.w / 2), 14];
@@ -2119,8 +2214,9 @@ function update() {
   if (scene === 'daycard' && st() > 1.9) go('news');
   if (scene === 'booth') {
     runTimers();
+    guideStart();
     const idle = !B.ent && !B.ending;
-    if (idle && now > B.lastFinish + 2.2) flashMsg('按左下角喇叭叫下一位');
+    if (idle && now > B.lastFinish + 2.2 && !GUIDE.on) flashMsg('按左下角喇叭叫下一位');
   }
 }
 function render() {
@@ -2144,6 +2240,7 @@ function render() {
   }
   g.fillStyle = K.INK; g.fillRect(0, 0, W, H);
   g.drawImage(F, ox, oy);
+  if (GUIDE.on && scene === 'booth') drawGuide(g);
   const cursor = drag ? 'hand' : 'arrow';
   if (ptr.mouse) { setCtx(g); drawCursorPx(drag ? HAND_PX : CURSOR_PX, ptr.x, ptr.y); }
 }
