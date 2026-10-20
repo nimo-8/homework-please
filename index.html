@@ -35,11 +35,7 @@
   <div class="ico">📱</div>
   <div><b>请横屏游玩</b><br>把手机横过来，画面才能铺满、字才看得清</div>
   <button class="go" type="button" id="forcePlay">仍然竖屏进入</button>
-  <small>横屏后如仍有黑边，点右上角「全屏」</small>
-</div>
-<div class="ui">
-  <button id="mute" type="button">声音：开</button>
-  <button id="full" type="button">全屏</button>
+  <small>横屏后如仍有黑边，可重启浏览器再进入</small>
 </div>
 <script>
 'use strict';
@@ -1173,11 +1169,19 @@ function guideStart() {
 }
 function guideDone(key) {
   if (!GUIDE.on) return;
-  const s = GUIDE_STEPS[GUIDE.step];
-  if (!s || s.key !== key) return;
+  const cur = GUIDE_STEPS[GUIDE.step];
+  if (cur && cur.key === key) { guideForce(); return; }
+  // 防卡死：玩家不按顺序做（比如先批改再拖动），只要做的是后续某步，直接快进过去
+  const idx = GUIDE_STEPS.findIndex((s) => s.key === key);
+  if (idx > GUIDE.step) {
+    GUIDE.step = idx + 1; GUIDE.t = now; SFX.play('select');
+    if (GUIDE.step >= GUIDE_STEPS.length) guideFinish();
+  }
+}
+// 防卡死兜底：「下一步」按钮，任何一步都能手动推进
+function guideForce() {
   GUIDE.step++;
-  GUIDE.t = now;
-  SFX.play('select');
+  GUIDE.t = now; SFX.play('select');
   if (GUIDE.step >= GUIDE_STEPS.length) guideFinish();
 }
 function guideFinish() {
@@ -1190,6 +1194,8 @@ function guideFinish() {
 function drawGuide(g) {
   const s = GUIDE_STEPS[GUIDE.step];
   if (!s) return;
+  // 弹卡（立班规询问 / 班规冲突）打开时不压暗，避免把弹卡也盖暗看不清 → 看起来像卡死
+  if (B && (B.lawAsk || B.lawClash)) return;
   setCtx(g);
   // 压暗全屏（用离屏帧挖洞，比 clearRect 更干净）
   g.fillStyle = 'rgba(10,8,7,0.62)';
@@ -1213,6 +1219,7 @@ function drawGuide(g) {
   txt(10, 5, s.text, 11, K.PAPER, 'la');
   if (s.sub) txt(10, 22, s.sub, 9, K.TEXT_L, 'la');
   txt(W - 8, 12, '跳过 ▶', 10, K.GRAY, 'rm');
+  txt(W - 74, 12, '下一步 ▶', 10, K.CLAUDE_L, 'rm');
   for (let i = 0; i < GUIDE_STEPS.length; i++) {
     const cx = W / 2 - (GUIDE_STEPS.length - 1) * 5 + i * 10;
     g.fillStyle = i <= GUIDE.step ? 'rgb(232,150,70)' : 'rgb(80,72,66)';
@@ -1220,8 +1227,38 @@ function drawGuide(g) {
   }
 }
 const GUIDE_SKIP = [W - 58, 0, W, 46];
+const GUIDE_NEXT = [W - 132, 0, W - 60, 46];
+
+// ══════════════ 8.6 暂停菜单 ══════════════
+let paused = false;
+const PAUSE_BTN = [8, 26, 56, 44];
+const PAUSE_BOX = { cont: [252, 176, 388, 198], save: [252, 208, 388, 230], quit: [252, 240, 388, 262] };
+function pauseClick(x, y) {
+  if (inBox(x, y, PAUSE_BOX.cont)) { paused = false; SFX.play('click'); return; }
+  if (inBox(x, y, PAUSE_BOX.save)) { saveGame(); paused = false; notice = { s: '已保存，回到存档页', t0: now }; GUIDE.on = false; go('saves'); return; }
+  if (inBox(x, y, PAUSE_BOX.quit)) { paused = false; GUIDE.on = false; go('saves'); return; }
+}
+function drawPause(g) {
+  g.fillStyle = 'rgba(8,6,5,0.74)';
+  g.fillRect(0, 0, W, H);
+  setCtx(g);
+  rect(240, 138, 400, 276, 'rgb(38,33,29)');
+  outline(240, 138, 400, 276, K.OUTLINE);
+  txt(320, 150, '已暂停', 14, K.PAPER, 'ma');
+  const items = [
+    [PAUSE_BOX.cont, '继 续', 'rgb(150,214,140)'],
+    [PAUSE_BOX.save, '保存并退出', 'rgb(232,180,110)'],
+    [PAUSE_BOX.quit, '退出（不保存）', 'rgb(170,160,150)']];
+  for (const [b, label, col] of items) {
+    rect(b[0], b[1], b[2], b[3], 'rgb(52,48,44)');
+    outline(b[0], b[1], b[2], b[3], K.OUTLINE);
+    txt((b[0] + b[2]) / 2, (b[1] + b[3]) / 2 - 5, label, 10, col, 'ma');
+  }
+  txt(320, 284, '读档会回到当天早上', 8, K.GREY_D, 'ma');
+}
 
 function startDay() {
+  paused = false;
   ecoDecay();   // 放过的把戏每天衰减一点，避免滚雪球
   B = {
     queue: buildQueue(S.day), idx: 0, ent: null, docs: [], lines: [], timers: [],
@@ -1849,6 +1886,8 @@ function onUp(ev) {
 }
 function boothInput(x, y) {
   if (B.ending) return;
+  // 暂停菜单打开时只认菜单按钮
+  if (paused) return pauseClick(x, y);
   // A. 立法询问弹卡：期间只认两个按钮
   if (B.lawAsk) {
     const lk = B.lawAsk.lk;
@@ -1862,10 +1901,13 @@ function boothInput(x, y) {
     if (inBox(x, y, CLASH_BOX.b)) { lawClashResolve('b'); return; }
     return;
   }
-  // 新手引导：点右上角「跳过」直接结束
+  // 新手引导：点右上角「跳过」直接结束，「下一步」手动推进（防卡死）
   if (GUIDE.on) {
     if (inBoxG(x, y, GUIDE_SKIP, 4)) { guideFinish(); return; }
+    if (inBoxG(x, y, GUIDE_NEXT, 4)) { guideForce(); return; }
   }
+  // 暂停按钮
+  if (inBoxG(x, y, PAUSE_BTN, 6)) { paused = true; SFX.play('click'); return; }
   if (B.hint > 0 && inBoxG(x, y, HINT_BTN, 7)) {
     if (!B.ent || !B.ent.handed) { flashMsg('先叫一位学生进来，才能用提示'); return; }
     B.hint--;
@@ -2088,8 +2130,6 @@ function drawClerk() {
   rect(cx - 3, top + 16, cx + 2, top + 16, K.INK);
   rect(cx - 1, top + 26, cx + 0, top + 34, K.CLAUDE);           // 毛衣
   rect(cx - 20, top + 30, cx - 16, top + 40, K.SKIN);           // 手
-  rect(352, 336, 362, 352, 'rgb(150,150,158)');                  // 保温杯
-  rect(354, 338, 360, 350, 'rgb(120,160,200)');
 }
 
 function drawBoothBg() {
@@ -2128,6 +2168,10 @@ function drawBoothBg() {
   for (let i = 0; i < 3; i++) rect(SPEAKER[0] + 7, SPEAKER[1] + 6 + i * 4, SPEAKER[0] + 9, SPEAKER[1] + 7 + i * 4, 'rgb(206,200,190)');
   rect(SPEAKER[0] + 4, SPEAKER[1] + 8, SPEAKER[0] + 6, SPEAKER[1] + 11, 'rgb(206,200,190)');
   txt(SPEAKER[0] + 14, SPEAKER[1] + 5, '叫下一位 ▶', 9, 'rgb(230,224,210)');
+  // 暂停按钮（左上角）
+  rect(PAUSE_BTN[0], PAUSE_BTN[1], PAUSE_BTN[2], PAUSE_BTN[3], 'rgb(96,94,90)');
+  rect(PAUSE_BTN[0] + 1, PAUSE_BTN[1] + 1, PAUSE_BTN[2] - 1, PAUSE_BTN[3] - 1, 'rgb(58,56,54)');
+  txt(PAUSE_BTN[0] + 7, PAUSE_BTN[1] + 4, '暂停', 9, 'rgb(230,224,210)');
   // 按钮
   if (S.day >= 2) {
     drawBtn(QUIZ_BTN, '抽背', B.ent && B.ent.suspect);
@@ -2141,7 +2185,6 @@ function drawBoothBg() {
   // 班规书图标（合上时）
   if (B.ruleInst && !B.ruleInst.big) {
     smallIcon('book', C.BOOK, 502, 316);
-    txt(528, 346, '班规', 8, 'rgb(198,188,172)', 'ma');
     const ln2 = Object.keys(S.laws || {}).length;
     if (ln2) { rect(516, 306, 524, 314, K.RED); txt(520, 305, String(ln2), 8, K.WHITE, 'ma'); }
   }
@@ -2178,9 +2221,7 @@ function drawTray() {
   txt(tx - 5, 219, '章', 8, 'rgb(216,208,192)', 'ma');
   txt(tx - 5, 231, '◀', 7, 'rgb(190,182,168)', 'ma');
   if (open) {
-    // 两个章分别干什么（原来只有「合格 / 重做」，玩家不知道后果）
-    txt(tx + 41, 179, '放行', 8, 'rgb(150,214,140)', 'ma');
-    txt(tx + 121, 179, '打回', 8, 'rgb(238,146,132)', 'ma');
+    // 「放行/打回」悬浮字与「合格/重做」按钮语义重复，按反馈去掉，只留按钮本身
     const [ax0, ay0, ax1, ay1] = stampBtnBox('approve', tx);
     rect(ax0, ay0, ax1, ay1, K.GREEN); outline(ax0, ay0, ax1, ay1, K.GREEN_D || 'rgb(56,88,48)');
     txt((ax0 + ax1) / 2, (ay0 + ay1) / 2 - 8, '合格', 10, K.WHITE, 'ma');
@@ -2765,7 +2806,7 @@ function go(name) {
 function update() {
   if (scene === 'daycard' && st() > 1.9) go('news');
   if (scene === 'booth') {
-    runTimers();
+    if (!paused) runTimers();
     guideStart();
     // 绩效数字滚动：向真实值靠拢，落差过大（换局/读档）时直接吸附
     if (B) {
@@ -2804,6 +2845,7 @@ function render() {
   g.fillStyle = K.INK; g.fillRect(0, 0, W, H);
   g.drawImage(F, ox, oy);
   if (GUIDE.on && scene === 'booth') drawGuide(g);
+  if (paused && scene === 'booth') drawPause(g);
   const cursor = drag ? 'hand' : 'arrow';
   if (ptr.mouse) { setCtx(g); drawCursorPx(drag ? HAND_PX : CURSOR_PX, ptr.x, ptr.y); }
 }
@@ -2843,15 +2885,6 @@ function toggleMute() {
   const b = document.getElementById('mute');
   if (b) b.textContent = m ? '声音：关' : '声音：开';
 }
-document.getElementById('mute').addEventListener('click', toggleMute);
-const fullBtn = document.getElementById('full');
-if (!document.documentElement.requestFullscreen && !document.documentElement.webkitRequestFullscreen) fullBtn.style.display = 'none';
-fullBtn.addEventListener('click', () => {
-  const root = document.documentElement;
-  if (document.fullscreenElement) { document.exitFullscreen(); return; }
-  const p = (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
-  if (p && p.then) p.then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {});
-});
 window.addEventListener('DOMContentLoaded', boot);
 </script>
 </body>
