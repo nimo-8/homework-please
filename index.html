@@ -1110,7 +1110,7 @@ const hasAnySave = () => slotList().some((s) => s.data);
 
 // ══════════════ 8. 检查台布局 ══════════════
 const WIN = [8, 134, 210, 262], WIN_W = 203, WIN_H = 129, WIN_CX = 101;
-const SPEAKER = [6, 290, 24, 306];
+const SPEAKER = [8, 264, 122, 284];
 const DETAIN_BTN = [172, 268, 212, 280];
 const QUIZ_BTN = [126, 268, 166, 280];
 const INSPECT_BTN = [602, 322, 634, 354];
@@ -1132,10 +1132,10 @@ const DESK_ARRIVE = [252, 140];
 // 玩家做出正确动作才推进（点喇叭 / 拖本子 / 批改 / 开检查 / 选字段 / 盖章），可随时跳过。
 const GUIDE = { on: false, step: 0, t: 0 };
 const GUIDE_STEPS = [
-  { key: 'call', text: '① 先点左下角的喇叭，叫下一位学生进来',
-    sub: '一次只查一位。学生进来后会鞠躬，然后把作业本递到桌上',
-    box: () => SPEAKER, pad: 16 },
-  { key: 'drag', text: '② 等学生把作业递上来，按住作业本往桌面中间拖',
+  { key: 'call', text: '① 点左下角「叫下一位 ▶」，叫学生进来',
+    sub: '一次只查一位。学生进来会先说话，说完才把作业递到桌上',
+    box: () => SPEAKER, pad: 6 },
+  { key: 'drag', text: '② 等作业递上来，按住作业本往桌面中间拖',
     sub: '拖到眼前才会放大，放大后才能点开题目；拖回右边就变回小卡片',
     box: () => {
       const d = mainDoc() || ((B && B.docs) ? B.docs.find((o) => o.key === 'hw') : null);
@@ -1148,11 +1148,17 @@ const GUIDE_STEPS = [
     sub: '比对模式里才能点证件、作业上的字段做对照；平时点它们只是拖动',
     box: () => INSPECT_BTN, pad: 12 },
   { key: 'pair', text: '⑤ 依次点两个字段（或点单处疑点），找出矛盾',
-    sub: '矛盾成立会自动记一条班规——班规不是开局给你的，是你一条条查出来的',
+    sub: '矛盾成立会弹卡问你：要不要写成班规。班规不是开局给你的，是你查出来的',
     box: null, pad: 0 },
-  { key: 'stamp', text: '⑥ 点右侧拉出印章栏盖章，再把作业本拖回给学生收下',
-    sub: '合格章 = 收下放行，重做章 = 打回叫家长。盖错会扣分，漏网和铁腕都记进结局',
+  { key: 'stamp', text: '⑥ 点右侧「印章」把手，拉出印章栏，盖一个章',
+    sub: '合格 = 放行，重做 = 打回。盖错要扣分，漏网和铁腕都记进结局',
     box: () => [W - 70, TRAY_Y0 - 14, W - 2, TRAY_Y1 + 16], pad: 8 },
+  { key: 'return', text: '⑦ 按住盖好章的作业本，拖到左边窗口松手 —— 交给学生',
+    sub: '松手就是还给他，这一位才算处理完；处理完才能叫下一位',
+    box: () => {
+      const d = mainDoc() || ((B && B.docs) ? B.docs.find((o) => o.key === 'hw') : null);
+      return d ? [d.x, d.y, d.x + d.doc.w, y2(d)] : [WIN[0], WIN[1], WIN[2], WIN[3]];
+    }, pad: 8 },
 ];
 function mainDoc() {
   if (!B || !B.docs) return null;
@@ -1376,6 +1382,7 @@ function decisionOf(e) {
   return pd.stamp.kind;
 }
 function leave(e) {
+  guideDone('return');   // ⑦「把作业还给学生」这一步的完成点
   e.phase = 'leave';
   e.tLeave = now;
   const dec = decisionOf(e);
@@ -1896,7 +1903,7 @@ function boothInput(x, y) {
     else { B.ruleInst.big = false; B.ruleInst.x = 502; B.ruleInst.y = 316; }
     SFX.play('paper'); return;
   }
-  if (inBoxG(x, y, SPEAKER, 14)) return callNext();
+  if (inBoxG(x, y, SPEAKER, 6)) return callNext();
   if (S.day >= 2 && inBoxG(x, y, DETAIN_BTN, 3, 10)) return detain();
   if (S.day >= 2 && inBoxG(x, y, QUIZ_BTN, 3, 10)) return quiz();
   for (const d of [...B.docs].reverse()) {
@@ -2114,10 +2121,13 @@ function drawBoothBg() {
   rect(DESK[0], DESK[1], W - 1, DESK[1] + 2, K.DESK_L);
   // 左下地面
   rect(0, WIN[3] + 7, DESK[0] - 1, H - 1, K.GROUND_D);
-  // 对讲机
-  rect(SPEAKER[0], SPEAKER[1], SPEAKER[2], SPEAKER[3], K.METAL_D || 'rgb(92,90,86)');
-  rect(SPEAKER[0] + 2, SPEAKER[1] + 2, SPEAKER[2] - 2, SPEAKER[3] - 2, 'rgb(60,58,56)');
-  for (let i = 0; i < 4; i++) rect(SPEAKER[0] + 4 + i * 4, SPEAKER[1] + 5, SPEAKER[0] + 5 + i * 4, SPEAKER[3] - 5, 'rgb(40,38,36)');
+  // 对讲机按钮：带文字，玩家一眼知道是「叫下一位」
+  rect(SPEAKER[0], SPEAKER[1], SPEAKER[2], SPEAKER[3], 'rgb(96,94,90)');
+  rect(SPEAKER[0] + 1, SPEAKER[1] + 1, SPEAKER[2] - 1, SPEAKER[3] - 1, 'rgb(58,56,54)');
+  // 小喇叭图标（三根声波）
+  for (let i = 0; i < 3; i++) rect(SPEAKER[0] + 7, SPEAKER[1] + 6 + i * 4, SPEAKER[0] + 9, SPEAKER[1] + 7 + i * 4, 'rgb(206,200,190)');
+  rect(SPEAKER[0] + 4, SPEAKER[1] + 8, SPEAKER[0] + 6, SPEAKER[1] + 11, 'rgb(206,200,190)');
+  txt(SPEAKER[0] + 14, SPEAKER[1] + 5, '叫下一位 ▶', 9, 'rgb(230,224,210)');
   // 按钮
   if (S.day >= 2) {
     drawBtn(QUIZ_BTN, '抽背', B.ent && B.ent.suspect);
@@ -2131,6 +2141,7 @@ function drawBoothBg() {
   // 班规书图标（合上时）
   if (B.ruleInst && !B.ruleInst.big) {
     smallIcon('book', C.BOOK, 502, 316);
+    txt(528, 346, '班规', 8, 'rgb(198,188,172)', 'ma');
     const ln2 = Object.keys(S.laws || {}).length;
     if (ln2) { rect(516, 306, 524, 314, K.RED); txt(520, 305, String(ln2), 8, K.WHITE, 'ma'); }
   }
@@ -2162,7 +2173,10 @@ function drawTray() {
   outline(tx, TRAY_Y0, W - 1, TRAY_Y1, K.OUTLINE);
   rect(tx - 12, 204, tx + 2, 244, 'rgb(72,64,58)');
   outline(tx - 12, 204, tx + 2, 244, K.OUTLINE);
-  for (let i = 0; i < 3; i++) rect(tx - 8, 212 + i * 10, tx - 2, 213 + i * 10, 'rgb(40,36,34)');
+  // 把手：竖排「印章」两字 + 箭头，玩家才知道这里能拉出来
+  txt(tx - 5, 208, '印', 8, 'rgb(216,208,192)', 'ma');
+  txt(tx - 5, 219, '章', 8, 'rgb(216,208,192)', 'ma');
+  txt(tx - 5, 231, '◀', 7, 'rgb(190,182,168)', 'ma');
   if (open) {
     // 两个章分别干什么（原来只有「合格 / 重做」，玩家不知道后果）
     txt(tx + 41, 179, '放行', 8, 'rgb(150,214,140)', 'ma');
@@ -2310,9 +2324,7 @@ function drawBooth() {
   drawFlash();
   drawLawAsk();     // 立法询问弹卡盖在最上层
   drawLawClash();   // 班规冲突弹卡（二者不会同时出现）
-  if (!B.ent && !B.ending && B.idx < B.queue.length) {
-    txt(101, 272, '按左下角喇叭叫下一位', 8, K.GREY_D, 'ma');
-  }
+  // 原来这里有一行「按左下角喇叭叫下一位」，现在按钮自带文字，删掉避免压字
 }
 
 // ══════════════ 11. 各屏幕 ══════════════
