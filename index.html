@@ -1240,9 +1240,9 @@ function leave(e) {
       const before = S.gradeWrong;
       S.gradeWrong += mism;
       B.gradeWrongDay = (B.gradeWrongDay || 0) + mism;
-      if (before < 4 && S.gradeWrong >= 4) later(0.5, () => { if (B) { flashMsg('教导主任预警 I：你的批改质量异常'); SFX.play('discrepancy'); } });
-      if (before < 7 && S.gradeWrong >= 7) later(0.6, () => { if (B) { flashMsg('教导主任预警 II：绩效监控扣款 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
-      if (before < 10 && S.gradeWrong >= 10) later(0.7, () => { if (B) { flashMsg('教导主任预警 III：最后通牒——再错就直接调岗'); B.shake = now; SFX.play('discrepancy'); } });
+      if (before < 4 && S.gradeWrong >= 4) later(0.5, () => { if (B) { flashMsg('教导主任预警 I：批改出错了，主任记了一笔'); SFX.play('discrepancy'); } });
+      if (before < 7 && S.gradeWrong >= 7) later(0.6, () => { if (B) { flashMsg('教导主任预警 II：批改错太多，绩效扣 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
+      if (before < 10 && S.gradeWrong >= 10) later(0.7, () => { if (B) { flashMsg('教导主任预警 III：最后通牒——再判错就调岗'); B.shake = now; SFX.play('discrepancy'); } });
       if ((S.gradeWrong || 0) + (S.ungraded || 0) >= 13 && !S.fired) {
         S.fired = true; saveGame();
         later(2.2, () => { if (B) { B.ending = true; go('over'); } });
@@ -1254,9 +1254,9 @@ function leave(e) {
     S.ungraded = (S.ungraded || 0) + 1;
     B.ungradedDay = (B.ungradedDay || 0) + 1;
     const afterOV = (S.gradeWrong || 0) + (S.ungraded || 0);
-    if (beforeOV < 4 && afterOV >= 4) later(0.5, () => { if (B) { flashMsg('教导主任预警 I：有作业未批改就盖章'); SFX.play('discrepancy'); } });
-    else if (beforeOV < 7 && afterOV >= 7) later(0.6, () => { if (B) { flashMsg('教导主任预警 II：未批率超标，扣款 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
-    if (beforeOV < 10 && afterOV >= 10) later(0.7, () => { if (B) { flashMsg('教导主任预警 III：最后通牒——批改和判错，总得用心一样'); B.shake = now; SFX.play('discrepancy'); } });
+    if (beforeOV < 4 && afterOV >= 4) later(0.5, () => { if (B) { flashMsg('教导主任预警 I：作业没批就盖章，主任记了一笔'); SFX.play('discrepancy'); } });
+    else if (beforeOV < 7 && afterOV >= 7) later(0.6, () => { if (B) { flashMsg('教导主任预警 II：好几份没批就交了，绩效扣 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
+    if (beforeOV < 10 && afterOV >= 10) later(0.7, () => { if (B) { flashMsg('教导主任预警 III：最后通牒——不批作业就等着调岗'); B.shake = now; SFX.play('discrepancy'); } });
   }
   B.lastVerdict = dec || 'skip';
   if (e.spec.react && e.spec.react[dec]) runSteps(e.spec.react[dec]);
@@ -1268,7 +1268,7 @@ function printCitation(lines) {
   const c = { key: 'cite', doc: new Citation(lines), owner: 'cite', x: 250, y: 150, big: true, stamp: null };
   B.docs.push(c);
   SFX.play('whoosh');
-  flashMsg('家校联系单已开');
+  flashMsg('请家长通知单已开，等家长来领人');
 }
 function flashMsg(s) { B.flash = { s, t0: now }; }
 
@@ -1475,7 +1475,7 @@ function inspectClick(x, y) {
 // —— 抽背 ——
 function quiz() {
   const e = B.ent;
-  if (!e || e.phase !== 'here' || !e.suspect) { flashMsg('得先有疑点，才能抽背'); return; }
+  if (!e || e.phase !== 'here' || !e.suspect) { flashMsg('还没找到疑点，抽背也没用'); return; }
   const faker = e.tell || e.spec.ok.includes('detain');
   const q = pick(QUIZ);
   say('C', q[0]);
@@ -1600,7 +1600,7 @@ function dragEnd(x, y) {
   if (!e || (e.phase !== 'here')) { Object.assign(d, prev); return; }
   if (d.key === e.spec.primary && !decisionOf(e)) {
     Object.assign(d, prev);
-    flashMsg('先在主作业上盖章（右侧拉出印章栏），再还给学生');
+    flashMsg('先在主作业上盖好章（右侧拉出印章栏），再还给学生');
     return;
   }
   B.docs = B.docs.filter((o) => o !== d);
@@ -1611,6 +1611,7 @@ function dragEnd(x, y) {
 function sceneClick(x, y) {
   if (scene === 'boot') { go('title'); return; }
   if (scene === 'title') { titleClick(x, y); return; }
+  if (scene === 'prologue') { prologueClick(); return; }
   // 日卡/早报是转场页：原来只能干等（1.9s / 0.6s），点了没反应像卡死 → 允许点击提前跳过
   if (scene === 'daycard' && st() > 0.25) { go('news'); return; }
   if (scene === 'news' && st() > 0.25) { go('booth'); return; }
@@ -1970,6 +1971,65 @@ function drawTypedScreen(lines, t) {
   });
   return acc;
 }
+// ══════════════ 9.5 开场剧情 ══════════════
+// 首次进入（无存档）时播放三页，交代「你是谁 / 为什么要查 / 七天后看什么」。
+const PROLOGUE = [
+  { tag: '九月 · 初三(2)班 办公室',
+    lines: ['上一任班主任调走了，走得很急。',
+            '办公桌上只剩一串钥匙，',
+            '和半张没写完的班规。'] },
+  { tag: '教导处 · 口头交代',
+    lines: ['「作业有没有真写，你自己看着办。」',
+            '「出了问题，我们找你。」'] },
+  { tag: '从今天起',
+    lines: ['规矩由你来定。',
+            '每查获一类蒙混，记一条班规——',
+            '七天之后，这本班规就是你的成绩单。'] },
+];
+let prologuePage = 0;
+function drawPrologue(t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  G.fillStyle = 'rgba(204,112,80,0.06)';
+  for (let x = 0; x < W; x += 32) G.fillRect(x, 0, 1, H);
+  for (let y = 0; y < H; y += 32) G.fillRect(0, y, W, 1);
+  const p = PROLOGUE[prologuePage] || PROLOGUE[0];
+  // 页签
+  rect(34, 58, 34 + tw(p.tag, 9) + 12, 76, 'rgba(204,112,80,0.14)');
+  txt(40, 62, p.tag, 9, 'rgb(214,140,106)');
+  let lastDone = 0;
+  p.lines.forEach((ln, i) => {
+    const start = 0.35 + i * 0.62;
+    const n = Math.floor((t - start) * 26);
+    if (n <= 0) return;
+    if (n >= ln.length) lastDone = Math.max(lastDone, start + ln.length / 26);
+    txt(40, 112 + i * 30, ln.slice(0, n), 13, K.PAPER);
+  });
+  // 全部打完后再显示「继续」
+  if (t > lastDone + 0.5) {
+    const blink = 0.55 + 0.45 * Math.sin(now * 4);
+    txt(40, 222, prologuePage < PROLOGUE.length - 1 ? '点击继续 ▶' : '点击开始上班 ▶', 10,
+      `rgba(226,215,196,${blink})`);
+  }
+  // 页码
+  for (let i = 0; i < PROLOGUE.length; i++) {
+    G.fillStyle = i === prologuePage ? 'rgb(204,112,80)' : 'rgb(78,70,64)';
+    G.fillRect(40 + i * 10, 246, 6, 3);
+  }
+  rect(0, 268, W - 1, 270, 'rgba(204,112,80,0.18)');
+  txt(W - 30, 276, 'HOMEWORK, PLEASE', 8, 'rgba(150,140,130,0.55)', 'ra');
+}
+function prologueClick() {
+  prologuePage++;
+  if (prologuePage >= PROLOGUE.length) {
+    prologuePage = 0;
+    if (!S.tut) S.tut = {};
+    S.tut.prologueSeen = true;
+    go('daycard');
+  } else {
+    sceneT0 = now; // 换页重置计时，让打字机重播
+    SFX.play('paper', 0.5);
+  }
+}
 function drawTitle(t) {
   rect(0, 0, W - 1, H - 1, K.INK);
   // 背景网格
@@ -2066,7 +2126,12 @@ function bigTitle(t) {
 function titleClick() {
   const hasSave = !!localStorage.getItem('ipc_save');
   if (hasSave) { loadGame(); go('daycard'); }
-  else { clearSave(); S.day = 1; go('daycard'); }
+  else {
+    clearSave(); S.day = 1;
+    // 首次新局先播开场剧情（看过就跳过）
+    if (!(S.tut && S.tut.prologueSeen)) { prologuePage = 0; go('prologue'); }
+    else go('daycard');
+  }
 }
 function drawDayCard(t) {
   rect(0, 0, W - 1, H - 1, K.INK);
@@ -2245,6 +2310,7 @@ function render() {
   const t = st();
   if (scene === 'boot') drawBoot(t);
   else if (scene === 'title') drawTitle(t);
+  else if (scene === 'prologue') drawPrologue(t);
   else if (scene === 'daycard') drawDayCard(t);
   else if (scene === 'news') drawNews(t);
   else if (scene === 'booth') drawBooth();
