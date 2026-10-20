@@ -1800,15 +1800,81 @@ function drawTitle(t) {
   G.fillStyle = 'rgba(204,112,80,0.08)';
   for (let x = 0; x < W; x += 32) G.fillRect(x, 0, 1, H);
   for (let y = 0; y < H; y += 32) G.fillRect(0, y, W, 1);
-  bigTitle(t);
-  txt(320, 156, '请出示你的作业', 16, K.PAPER, 'ma');
-  txt(320, 182, ' Papers, Please 式检查游戏 · 班主任版 ', 10, K.GREY, 'ma');
-  txt(320, 204, '疑似 AI 涌现现场 · 一个网址进去，一个游戏出来', 10, K.GREY_D, 'ma');
+  // —— 右侧：检查站窗口预览（AI 学生立绘当主角） ——
+  const wx0 = 396, wy0 = 96, wx1 = 620, wy1 = 300;
+  rect(wx0 - 6, wy0 - 6, wx1 + 6, wy1 + 6, K.COUNTER);
+  rect(wx0, wy0, wx1, wy1, 'rgb(88,78,72)');
+  for (let x = wx0 + 8; x < wx1; x += 18) rect(x, wy0, x, wy1, 'rgba(0,0,0,0.12)');
+  const stu = ['stuA0', 'stuB0', 'stuC0', 'stuD0'][Math.floor(t / 2.4) % 4];
+  if (aiReady(stu)) {
+    const im = AIIMG[stu];
+    const hh = 168, ww = im.width * (hh / im.height);
+    G.save();
+    G.beginPath(); G.rect(wx0, wy0, wx1 - wx0, wy1 - wy0); G.clip();
+    G.drawImage(im, wx0 + (wx1 - wx0 - ww) / 2, wy1 - hh - 6, ww, hh);
+    G.restore();
+    // 窗台
+    rect(wx0, wy1 - 10, wx1, wy1, K.COUNTER);
+    rect(wx0, wy1 - 10, wx1, wy1 - 8, shade(C.COUNTER, 1.2));
+    // 对话气泡
+    rect(wx0 + 10, wy0 + 10, wx1 - 10, wy0 + 40, 'rgba(22,19,19,0.85)');
+    outline(wx0 + 10, wy0 + 10, wx1 - 10, wy0 + 40, K.GREY_D);
+    txt(wx0 + 18, wy0 + 17, pick2(Math.floor(t * 1.4)), 10, K.PAPER);
+  } else {
+    rect(wx0 + 60, wy0 + 40, wx1 - 60, wy1, 'rgb(72,96,150)');
+  }
+  // —— 左侧：标题块 ——
+  bigTitleLeft(t);
+  txt(30, 148, '请出示你的作业', 20, K.PAPER);
+  txt(46, 184, 'Papers, Please 式检查游戏 · 班主任版', 10, K.GREY);
+  txt(46, 206, '疑似 AI 涌现现场 · 一个网址进去，一个游戏出来', 10, K.GREY_D);
+  // 合格章（斜盖）
+  drawTitleStamp(150, 252, t);
   const bl = Math.sin(t * 3) > -0.2;
-  if (bl) txt(320, 240, '- 点击开始 -', 12, K.CLAUDE_L, 'ma');
+  if (bl) txt(96, 296, '- 点击开始 -', 13, K.CLAUDE_L, 'ma');
   const hasSave = !!localStorage.getItem('ipc_save');
-  txt(320, 268, hasSave ? `继续 第 ${S.day} 天　／　重新开始` : '周一早晨，收作业', 10, K.GREY_D, 'ma');
-  txt(320, 336, '玩法致敬《IP, PLEASE》与《Papers, Please》', 8, 'rgb(90,84,80)', 'ma');
+  txt(96, 326, hasSave ? `继续 第 ${S.day} 天　／　重新开始` : '周一早晨，收作业', 10, K.GREY_D, 'ma');
+  // 7 天 × 判例 × 道具 三徽章
+  const badges = ['7 天关卡', '判例立法', '批改道具'];
+  badges.forEach((b2, i) => {
+    const bx = 396 + i * 78, by = 318;
+    rect(bx, by, bx + 70, by + 24, 'rgba(204,112,80,0.12)');
+    outline(bx, by, bx + 70, by + 24, K.GREY_D);
+    txt(bx + 35, by + 8, b2, 9, K.CLAUDE_L, 'ma');
+  });
+  txt(320, 352, '玩法致敬《IP, PLEASE》与《Papers, Please》 · 疑似 AI 涌现现场', 8, 'rgb(90,84,80)', 'ma');
+}
+const TITLE_LINES = ['老师，我的作业。', '老师，交作业。', '这作业是涌现出来的。', '我开了魔法的。', '前面那位的情况，我听说了。'];
+function pick2(i) { return TITLE_LINES[i % TITLE_LINES.length]; }
+function drawTitleStamp(x, y, t) {
+  const pop = t < 2.2 ? Math.max(0, 1 - Math.max(0, t - 1.6) / 0.6) : 1;
+  if (pop <= 0) return;
+  G.save();
+  G.translate(x, y);
+  G.rotate(-0.18);
+  const sc = 0.6 + 0.4 * pop;
+  G.scale(sc, sc);
+  G.strokeStyle = 'rgba(180,46,40,0.9)';
+  G.lineWidth = 3;
+  G.beginPath(); G.arc(0, 0, 34, 0, Math.PI * 2); G.stroke();
+  G.beginPath(); G.arc(0, 0, 27, 0, Math.PI * 2); G.stroke();
+  G.fillStyle = 'rgba(180,46,40,0.92)';
+  G.font = 'bold 20px "Microsoft YaHei","PingFang SC",sans-serif';
+  G.textAlign = 'center'; G.textBaseline = 'middle';
+  G.fillText('合格', 0, 1);
+  G.font = 'bold 8px sans-serif';
+  G.fillText('M.O.A.', 0, 16);
+  G.restore();
+}
+function bigTitleLeft(t) {
+  const s = 'HOMEWORK,';
+  const s2 = 'PLEASE';
+  const jitter = (Math.sin(t * 9) > 0.96) ? 1 : 0;
+  const c1 = textCanvas(s, 38, K.CLAUDE);
+  const c2 = textCanvas(s2, 38, K.CLAUDE_L);
+  G.drawImage(c1, 28 + jitter, 52);
+  G.drawImage(c2, 28, 100);
+  rect(30, 156, 34, 196, K.CLAUDE);
 }
 function bigTitle(t) {
   const s = 'HOMEWORK, PLEASE';
