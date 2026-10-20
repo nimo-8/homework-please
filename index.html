@@ -1218,23 +1218,28 @@ function leave(e) {
   const ok = e.spec.ok;
   const good = dec && ok.includes(dec);
   B.total++; S.total++;
-  if (good) { B.correct++; S.correct++; SFX.play('coin'); flashMsg(pick(['批完了。', '下一位。', '合格。'])); }
+  if (good) { B.correct++; S.correct++; SFX.play('coin'); haptic(22); floater('✓ 批对了', 320, 206, '170,220,150'); flashMsg(pick(['批完了。', '下一位。', '合格。'])); }
   else if (dec === 'approve') { S.wrongApprove = (S.wrongApprove || 0) + 1; }
   else if (dec === 'deny' || dec === 'detain') { S.wrongDeny = (S.wrongDeny || 0) + 1; }
   else if ((S.charm || 0) > 0) {
     S.charm--;
+    haptic(18);
+    floater('护身符抵消', 320, 206, '232,214,140');
     flashMsg('护身符发光，抵消了这次处罚');
     SFX.play('coin');
   }
   else {
     S.cites++; B.pay = Math.max(0, B.pay - 2);
+    haptic([55, 45, 55]);
+    floater('误判 -2', 320, 206, '232,120,110');
+    floater('-2 分', 604, 56, '232,120,110');
     const why = e.spec.reason || '违反规则';
     printCitation([`误判 / 漏检`, `理由：${why}`, `扣 2 分绩效，全校通报`]);
     SFX.play('stamp_no');
   }
   const hwd = e.docs.find((d) => d.key === 'hw');
   if (hwd && hwd.doc.ex && hwd.doc.marks) {
-    if (hwd.doc.ex.every((ex, i) => hwd.doc.marks[i] === ex.ok)) { B.gradeOk = (B.gradeOk || 0) + 1; B.pay += 1; }
+    if (hwd.doc.ex.every((ex, i) => hwd.doc.marks[i] === ex.ok)) { B.gradeOk = (B.gradeOk || 0) + 1; B.pay += 1; floater('+1 分', 604, 56, '170,220,150'); }
     const mism = hwd.doc.marks.filter((m, i) => m !== null && m !== hwd.doc.ex[i].ok).length;
     if (mism > 0) {
       const before = S.gradeWrong;
@@ -1253,6 +1258,8 @@ function leave(e) {
     const beforeOV = (S.gradeWrong || 0) + (S.ungraded || 0);
     S.ungraded = (S.ungraded || 0) + 1;
     B.ungradedDay = (B.ungradedDay || 0) + 1;
+    haptic(16);
+    floater('没批就交了', 320, 206, '230,170,90');
     const afterOV = (S.gradeWrong || 0) + (S.ungraded || 0);
     if (beforeOV < 4 && afterOV >= 4) later(0.5, () => { if (B) { flashMsg('教导主任预警 I：作业没批就盖章，主任记了一笔'); SFX.play('discrepancy'); } });
     else if (beforeOV < 7 && afterOV >= 7) later(0.6, () => { if (B) { flashMsg('教导主任预警 II：好几份没批就交了，绩效扣 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
@@ -1272,6 +1279,33 @@ function printCitation(lines) {
 }
 function flashMsg(s) { B.flash = { s, t0: now }; }
 
+// ══════════════ 反馈感：震动 / 飘字 / 点击涟漪 ══════════════
+// 手机上靠 navigator.vibrate 给触感；桌面忽略。飘字用于分数与判定结果，
+// 涟漪让每次点击都有"按下去了"的即时确认。
+function haptic(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+const floaters = [];
+function floater(text, x, y, rgb) {
+  floaters.push({ text, x, y, rgb: rgb || '232,222,202', t0: now });
+  if (floaters.length > 14) floaters.shift();
+}
+const ripples = [];
+function ripple(x, y) { ripples.push({ x, y, t0: now }); if (ripples.length > 10) ripples.shift(); }
+function drawFeedback() {
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i], u = (now - r.t0) / 0.34;
+    if (u >= 1) { ripples.splice(i, 1); continue; }
+    G.strokeStyle = `rgba(232,222,202,${0.42 * (1 - u)})`;
+    G.lineWidth = 1.5;
+    G.beginPath(); G.arc(r.x, r.y, 3 + u * 18, 0, Math.PI * 2); G.stroke();
+  }
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i], u = (now - f.t0) / 1.2;
+    if (u >= 1) { floaters.splice(i, 1); continue; }
+    const a = u < 0.15 ? u / 0.15 : Math.max(0, 1 - (u - 0.15) / 0.85);
+    txt(f.x, f.y - u * 32, f.text, 13, `rgba(${f.rgb},${a})`, 'ma');
+  }
+}
+
 function stampBtnBox(kind, tx) {
   return kind === 'approve' ? [tx + 8, TRAY_Y0 + 8, tx + 74, TRAY_Y1 - 8] : [tx + 88, TRAY_Y0 + 8, tx + 154, TRAY_Y1 - 8];
 }
@@ -1282,6 +1316,7 @@ function stamp(kind) {
   if (!pd || !pd.big) { flashMsg('先在桌上放好主作业，再盖章'); return; }
   B.tray.t = now;
   B.presses.push({ kind, t0: now });
+  haptic(30);
   guideDone('stamp');
   const [mx, my] = MARK_XY[kind];
   later(0.18, () => {
@@ -1407,6 +1442,8 @@ function showIssue(issue) {
   I.banner = { title: issue.title, sub: issue.sub, issue, ask: issue.ask && !e.asked.has(issue) && e.phase === 'here', bad: true };
   e.suspect = true;
   SFX.play('discrepancy');
+  haptic(24);
+  floater('抓到疑点', 320, 206, '240,180,110');
   e.found.add(issue);
   const lk = issue.law;
   if (lk && LAW_DEFS[lk] && !S.laws[lk]) {
@@ -1414,7 +1451,7 @@ function showIssue(issue) {
     saveGame();
     if (B.ruleInst) B.ruleInst.doc = new Rulebook(S.day);
     later(0.6, () => { if (B) flashMsg('新班规诞生：' + LAW_DEFS[lk].head); });
-    later(0.65, () => SFX.play('coin'));
+    later(0.65, () => { haptic([28, 36, 28]); floater('新班规 +1', 320, 160, '232,214,140'); SFX.play('coin'); });
   }
 }
 function inspectClick(x, y) {
@@ -1504,6 +1541,8 @@ function onDown(ev) {
   Object.assign(ptr, { x, y, down: true, mouse: ev.pointerType === 'mouse' });
   if (canvasEl.setPointerCapture) try { canvasEl.setPointerCapture(ev.pointerId); } catch (e) {}
   ev.preventDefault();
+  ripple(x, y);   // 每次点击的即时确认
+  haptic(8);
   if (scene === 'booth') boothInput(x, y);
   else sceneClick(x, y);
 }
@@ -1954,6 +1993,7 @@ function drawBooth() {
   drawLines();
   drawSelHighlight();
   drawBanner();
+  drawFeedback();   // 点击涟漪 + 分数/判定飘字（画在游戏层，跟着 shake 一起抖）
   drawFlash();
   if (!B.ent && !B.ending && B.idx < B.queue.length) {
     txt(101, 272, '按左下角喇叭叫下一位', 8, K.GREY_D, 'ma');
@@ -2173,6 +2213,19 @@ function initSummary() {
   S.pay += B.pay;
   try { localStorage.setItem('ipc_save', JSON.stringify({ day: Math.min(S.day + 1, LAST_DAY), pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0, gradeWrong: S.gradeWrong || 0, ungraded: S.ungraded || 0, fired: S.fired || false })); } catch (e) {}
 }
+function dailyComment() {
+  if (!B) return ['', false];
+  const miss = B.total - B.correct;
+  const gw = B.gradeWrongDay || 0, un = B.ungradedDay || 0;
+  if (B.total === 0) return ['今天一个都没查，主任会记得的。', true];
+  if (miss === 0 && gw === 0 && un === 0) return ['零失误。教导处今天挑不出毛病。', false];
+  if (miss === 0 && gw === 0) return ['判断都对，只是作业没批完。', false];
+  if (miss >= 3) return ['放走的人太多，走廊里都听见风声了。', true];
+  if (gw >= 3) return ['批改错得有点多，主任正盯着你。', true];
+  if (un >= 2) return ['好几份没批就交了，这事说不过去。', true];
+  if (miss === 0) return ['判断全对，稳。', false];
+  return ['还行，但别指望明天还这么顺。', false];
+}
 function drawSummary(t) {
   rect(0, 0, W - 1, H - 1, K.INK);
   rect(160, 40, 479, 320, K.PAPER);
@@ -2196,9 +2249,9 @@ function drawSummary(t) {
     txt(220, 78 + i * 26, k, 12, K.TEXT_L);
     txt(420, 76 + i * 26, v, 14, K.TEXT, 'ra');
   });
-  if (S.cites >= 4) {
-    txt(320, 250, '误判太多……明天去教导处写情况说明吧。', 10, K.RED_D, 'ma');
-  }
+  // 当日点评：按表现给不同的话，不再只有「误判太多」一种
+  const [cmp, cmDire] = dailyComment();
+  txt(320, 250, cmp, 10, cmDire ? K.RED_D : K.TEXT_L, 'ma');
   if (t > 1 && Math.sin(t * 3) > -0.2) txt(320, 296, S.day >= LAST_DAY ? '- 点击进入周末 -' : '- 点击开始明天 -', 10, K.TEXT_L, 'ma');
 }
 const SHOP_POOL = [
