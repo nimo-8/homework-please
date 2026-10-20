@@ -981,9 +981,57 @@ let payView = null;   // 绩效数字的显示值（平滑滚动，不直接跳�
 let drag = null;
 let scene = 'boot', sceneT0 = 0;
 const st = () => now - sceneT0;
-function saveGame() { try { localStorage.setItem('ipc_save', JSON.stringify({ day: S.day, pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0, gradeWrong: S.gradeWrong || 0, ungraded: S.ungraded || 0, fired: S.fired || false, tut: S.tut || {} })); } catch (e) {} }
-function loadGame() { try { const d = JSON.parse(localStorage.getItem('ipc_save')); if (d && d.day) Object.assign(S, d); } catch (e) {} }
-function clearSave() { try { localStorage.removeItem('ipc_save'); } catch (e) {} }
+// ══════════════ 存档：3 个槽位 ══════════════
+const SLOT_N = 3;
+const slotKey = (n) => 'ipc_slot' + n;
+let curSlot = 0;               // 当前槽位，0 = 还没选
+let delConfirm = null;         // 待确认删除的槽位 {n, t0}
+function readSlot(n) {
+  try {
+    const d = JSON.parse(localStorage.getItem(slotKey(n)));
+    return (d && d.day) ? d : null;
+  } catch (e) { return null; }
+}
+function slotList() {
+  const out = [];
+  for (let i = 1; i <= SLOT_N; i++) out.push({ n: i, data: readSlot(i) });
+  return out;
+}
+function saveGame() {
+  if (!curSlot) return;
+  try {
+    localStorage.setItem(slotKey(curSlot), JSON.stringify({
+      day: S.day, pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {},
+      charm: S.charm || 0, gradeWrong: S.gradeWrong || 0, ungraded: S.ungraded || 0,
+      fired: S.fired || false, tut: S.tut || {}, wrongApprove: S.wrongApprove || 0,
+      wrongDeny: S.wrongDeny || 0, correct: S.correct || 0, total: S.total || 0,
+      slot: curSlot, savedAt: Date.now(),
+    }));
+  } catch (e) {}
+}
+function loadGame(n) {
+  const slot = n || curSlot;
+  const d = readSlot(slot);
+  if (!d) return false;
+  Object.assign(S, d);
+  curSlot = slot;
+  if (!S.tut) S.tut = {};
+  return true;
+}
+function clearSave(n) {
+  try { localStorage.removeItem(slotKey(n || curSlot)); } catch (e) {}
+}
+// 老版本单槽存档迁移到 1 号位，避免玩家进度丢失
+function migrateOldSave() {
+  try {
+    const old = localStorage.getItem('ipc_save');
+    if (old && !readSlot(1)) {
+      localStorage.setItem(slotKey(1), old);
+      localStorage.removeItem('ipc_save');
+    }
+  } catch (e) {}
+}
+const hasAnySave = () => slotList().some((s) => s.data);
 
 // ══════════════ 8. 检查台布局 ══════════════
 const WIN = [8, 134, 210, 262], WIN_W = 203, WIN_H = 129, WIN_CX = 101;
@@ -1291,7 +1339,8 @@ function printCitation(lines) {
   SFX.play('whoosh');
   flashMsg('请家长通知单已开，等家长来领人');
 }
-function flashMsg(s) { B.flash = { s, t0: now }; }
+let notice = null;   // 非检查台场景（存档页等）的轻提示
+function flashMsg(s) { if (!B) { notice = { s, t0: now }; return; } B.flash = { s, t0: now }; }
 
 // ══════════════ 反馈感：震动 / 飘字 / 点击涟漪 ══════════════
 // 手机上靠 navigator.vibrate 给触感；桌面忽略。飘字用于分数与判定结果，
@@ -1665,6 +1714,7 @@ function sceneClick(x, y) {
   if (scene === 'boot') { go('title'); return; }
   if (scene === 'title') { titleClick(x, y); return; }
   if (scene === 'prologue') { prologueClick(); return; }
+  if (scene === 'saves') { savesClick(x, y); return; }
   // 日卡/早报是转场页：原来只能干等（1.9s / 0.6s），点了没反应像卡死 → 允许点击提前跳过
   if (scene === 'daycard' && st() > 0.25) { go('news'); return; }
   if (scene === 'news' && st() > 0.25) { go('booth'); return; }
@@ -1678,7 +1728,7 @@ function sceneClick(x, y) {
   }
   if ((scene === 'end' || scene === 'over') && st() > 1.2) {
     const r = restartBtn();
-    if (inBox(x, y, r)) { clearSave(); S.day = 1; S.pay = 0; S.cites = 0; S.correct = 0; S.total = 0; go('daycard'); }
+    if (inBox(x, y, r)) { if (curSlot) clearSave(curSlot); go('saves'); }
   }
 }
 
@@ -2040,6 +2090,88 @@ function drawTypedScreen(lines, t) {
   });
   return acc;
 }
+// ══════════════ 9.6 存档选择页 ══════════════
+const SAVE_CARDS = [0, 1, 2].map((i) => ({ x: 40 + i * 200, y: 128, w: 180, h: 152 }));
+function drawSaves(t) {
+  rect(0, 0, W - 1, H - 1, K.INK);
+  G.fillStyle = 'rgba(204,112,80,0.06)';
+  for (let x = 0; x < W; x += 32) G.fillRect(x, 0, 1, H);
+  for (let y = 0; y < H; y += 32) G.fillRect(0, y, W, 1);
+  txt(40, 34, '选择存档', 18, K.PAPER);
+  txt(40, 62, '点卡片继续 · 右上角 ✕ 删除（连点两次确认）· 空位开新局', 9, K.GREY_L);
+  const list = slotList();
+  list.forEach((s, i) => {
+    const c = SAVE_CARDS[i];
+    if (s.data) {
+      rect(c.x, c.y, c.x + c.w, c.y + c.h, 'rgba(52,46,42,0.96)');
+      outline(c.x, c.y, c.x + c.w, c.y + c.h, K.OUTLINE);
+      txt(c.x + 12, c.y + 12, `存档 ${s.n}`, 9, K.GREY_L);
+      txt(c.x + 12, c.y + 30, `第 ${s.data.day} 天`, 17, K.PAPER);
+      txt(c.x + 12, c.y + 58, `绩效 ${s.data.pay || 0} 分`, 11, K.ORANGE);
+      txt(c.x + 12, c.y + 76, `班规 ${Object.keys(s.data.laws || {}).length}/7 条`, 9, K.TEXT_L);
+      if (s.data.savedAt) {
+        const d = new Date(s.data.savedAt);
+        txt(c.x + 12, c.y + 94, `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`, 8, K.GREY_D);
+      }
+      const del = delConfirm && delConfirm.n === s.n;
+      txt(c.x + c.w - 10, c.y + 11, del ? '再点一次' : '✕', 9, del ? K.RED : K.GREY_D, 'ra');
+      txt(c.x + c.w / 2, c.y + c.h - 13, '点击进入 ▶', 9, K.CLAUDE_L, 'ma');
+    } else {
+      outline(c.x, c.y, c.x + c.w, c.y + c.h, K.GREY_D);
+      txt(c.x + c.w / 2, c.y + c.h / 2 - 8, '+ 新的一局', 12, K.GREY_L, 'ma');
+      txt(c.x + c.w / 2, c.y + c.h / 2 + 10, `空存档 ${s.n}`, 8, K.GREY_D, 'ma');
+    }
+  });
+  txt(W / 2, 310, '进度存在浏览器本地，换设备或清缓存会丢失', 8, K.GREY_D, 'ma');
+  if (notice && now - notice.t0 < 2.2) txt(320, 288, notice.s, 11, K.AMBER, 'ma');
+}
+function resetRun() {
+  Object.assign(S, {
+    day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {}, laws: {}, inv: {},
+    charm: 0, shopOffers: null, bought: [], gradeWrong: 0, ungraded: 0,
+    fired: false, wrongApprove: 0, wrongDeny: 0,
+  });
+  payView = 0;
+}
+function savesClick(x, y) {
+  const list = slotList();
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i], c = SAVE_CARDS[i];
+    if (!inBox(x, y, [c.x, c.y, c.x + c.w, c.y + c.h])) continue;
+    // 删除确认区（卡片右上角）
+    if (s.data && inBox(x, y, [c.x + c.w - 54, c.y, c.x + c.w, c.y + 26])) {
+      if (delConfirm && delConfirm.n === s.n) {
+        clearSave(s.n); delConfirm = null;
+        SFX.play('paper'); flashMsg(`存档 ${s.n} 已删除`);
+      } else {
+        delConfirm = { n: s.n, t0: now };
+        SFX.play('blip');
+      }
+      return;
+    }
+    delConfirm = null;
+    if (s.data) {
+      if (loadGame(s.n)) {
+        SFX.play('select');
+        haptic(14);
+        if (S.day === 1 && !(S.tut && S.tut.prologueSeen)) { prologuePage = 0; go('prologue'); }
+        else { flashMsg(`继续 第 ${S.day} 天`); go('daycard'); }
+      }
+    } else {
+      curSlot = s.n;
+      clearSave(s.n);
+      resetRun();
+      S.tut.prologueSeen = false;
+      saveGame();   // 立刻落一次档：选了槽位就有记录，中途退出也能回来
+      SFX.play('select');
+      haptic(14);
+      prologuePage = 0;
+      go('prologue');
+    }
+    return;
+  }
+  delConfirm = null;
+}
 // ══════════════ 9.5 开场剧情 ══════════════
 // 首次进入（无存档）时播放三页，交代「你是谁 / 为什么要查 / 七天后看什么」。
 const PROLOGUE = [
@@ -2137,8 +2269,8 @@ function drawTitle(t) {
   drawTitleStamp(150, 252, t);
   const bl = Math.sin(t * 3) > -0.2;
   if (bl) txt(96, 296, '- 点击开始 -', 13, K.CLAUDE_L, 'ma');
-  const hasSave = !!localStorage.getItem('ipc_save');
-  txt(96, 326, hasSave ? `继续 第 ${S.day} 天　／　重新开始` : '周一早晨，收作业', 10, K.GREY_D, 'ma');
+  const hasSave = hasAnySave();
+  txt(96, 326, hasSave ? '点进来选存档 / 开新局' : '周一早晨，收作业', 10, K.GREY_D, 'ma');
   // 7 天 × 先例 × 道具 三徽章
   const badges = ['7 天关卡', '按例定规', '批改道具'];
   badges.forEach((b2, i) => {
@@ -2193,14 +2325,8 @@ function bigTitle(t) {
   G.drawImage(c2, 0, 0, 2, c2.height, x - 2, y - 1, 2, c2.height);
 }
 function titleClick() {
-  const hasSave = !!localStorage.getItem('ipc_save');
-  if (hasSave) { loadGame(); go('daycard'); }
-  else {
-    clearSave(); S.day = 1;
-    // 首次新局先播开场剧情（看过就跳过）
-    if (!(S.tut && S.tut.prologueSeen)) { prologuePage = 0; go('prologue'); }
-    else go('daycard');
-  }
+  // 统一进存档选择页：选已有进度或开新局都由那一页负责
+  go('saves');
 }
 function drawDayCard(t) {
   rect(0, 0, W - 1, H - 1, K.INK);
@@ -2240,7 +2366,11 @@ function drawNewsIcon(kind, cx, cy) {
 }
 function initSummary() {
   S.pay += B.pay;
-  try { localStorage.setItem('ipc_save', JSON.stringify({ day: Math.min(S.day + 1, LAST_DAY), pay: S.pay, cites: S.cites, laws: S.laws || {}, inv: S.inv || {}, charm: S.charm || 0, gradeWrong: S.gradeWrong || 0, ungraded: S.ungraded || 0, fired: S.fired || false })); } catch (e) {}
+  // 预存「下一天」，中途退出不必重打一遍（写进当前槽位）
+  const keep = S.day;
+  S.day = Math.min(S.day + 1, LAST_DAY);
+  saveGame();
+  S.day = keep;
 }
 function dailyComment() {
   if (!B) return ['', false];
@@ -2402,6 +2532,7 @@ function render() {
   if (scene === 'boot') drawBoot(t);
   else if (scene === 'title') drawTitle(t);
   else if (scene === 'prologue') drawPrologue(t);
+  else if (scene === 'saves') drawSaves(t);
   else if (scene === 'daycard') drawDayCard(t);
   else if (scene === 'news') drawNews(t);
   else if (scene === 'booth') drawBooth();
@@ -2448,7 +2579,7 @@ function boot() {
   const fpBtn = document.getElementById('forcePlay');
   if (fpBtn) fpBtn.addEventListener('click', () => { document.body.classList.add('forced'); fit(); });
   window.addEventListener('keydown', (e) => { if (e.key === 'm' || e.key === 'M') toggleMute(); });
-  loadGame();
+  migrateOldSave();
   sceneT0 = performance.now() / 1000;
   requestAnimationFrame(loop);
 }
