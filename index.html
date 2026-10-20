@@ -526,7 +526,10 @@ function drawScribble(x, y, s) {
 class Note {
   constructor(lines) {
     this.lines = lines;
-    this.w = Math.max(96, ...lines.map((s) => tw(s, 10)) + 18);
+    // 注意括号：+18 要在 map 回调里面。写成 `...lines.map(...) + 18` 会先做
+    // 「数组 + 数字」的字符串拼接，再按字符展开，Math.max 拿到 ',' 得到 NaN，
+    // 整张纸条宽度变 NaN，导致它永远点不中、也画不出来。
+    this.w = Math.max(96, ...lines.map((s) => tw(s, 10) + 18));
     this.h = 12 + 13 * lines.length;
     this.icon = ['card', [236, 228, 204]];
     this.fields = { 内容: [4, 4, this.w - 6, this.h - 6] };
@@ -598,16 +601,26 @@ function makeHomework(o) {
 }
 
 // —— 矛盾模板 ——
-const REGION_ISSUE = (cls, ask) => ({ law: 'region', pairs: [['hw.班级'], ['hw.班级', 'st.header'], ['hw.班级', 'rule.region'], ['st.header', 'rule.region']], title: '非本班作业', sub: `封面班级：${cls}`, ask });
-const ID_ISSUE = (ask) => ({ law: 'info', pairs: [['st.学号', 'hw.学号'], ['st.姓名', 'hw.学号'], ['st.姓名', 'hw.姓名']], title: '信息不符 DISCREPANCY', sub: '学生证与作业本对不上', ask });
-const DATE_ISSUE = (d, ask) => ({ law: 'info', pairs: [['hw.日期'], ['st.姓名', 'hw.日期'], ['hw.日期', 'rule.info']], title: '日期不符 DISCREPANCY', sub: `作业日期：${d}`, ask });
-const PRINTED_ISSUE = { law: 'real', pairs: [['hw.科目', 'hw.日期'], ['hw.科目', 'rule.real'], ['hw.签字', 'rule.real']], title: '代写嫌疑', sub: '正文为打印体，疑似网购代写',
+// 外班学生只递作业本、不递学生证（这本身就是破绽），所以这里不能引用 st.* 的栏位
+const REGION_ISSUE = (cls, ask) => ({ law: 'region', pairs: [['hw.班级'], ['hw.班级', 'rule.region']], title: '非本班作业', sub: `封面班级：${cls}`, ask });
+// pairs 里的键必须是「文档 key + '.' + 该文档 fields 里真实存在的栏位名」：
+//   st → header / name / photo / 学号 / 性别（注意：姓名的键是 name，不是 姓名）
+//   hw → 班级 / 姓名 / 学号 / 科目 / 日期 / 签字 / 答案（答案 = 翻到习题页）
+//   rule → 已立班规的 key（region/info/recite/real/xray/note/photo），未立之前点不到
+//   xr → 手机 / 游戏机 / 漫画 / 耳机 / 小说（须先拉开课桌抽屉）
+// 每个矛盾至少留一条「不依赖班规」的纯文档路径，否则玩家在立规前永远点不出来。
+const ID_ISSUE = (ask) => ({ law: 'info', pairs: [['st.学号', 'hw.学号'], ['st.name', 'hw.姓名'],
+  ['st.学号', 'rule.info'], ['st.name', 'rule.info']], title: '信息不符 DISCREPANCY', sub: '学生证与作业本对不上', ask });
+const DATE_ISSUE = (d, ask) => ({ law: 'info', pairs: [['hw.日期'], ['hw.日期', 'rule.info']], title: '日期不符 DISCREPANCY', sub: `作业日期：${d}`, ask });
+// 习题页整页算一个栏位「答案」，所以 hw.答案 只能单独点，不能和别的栏位组对
+const PRINTED_ISSUE = { law: 'real', pairs: [['hw.科目', 'hw.日期'],
+  ['hw.科目', 'rule.real'], ['hw.签字', 'rule.real']], title: '代写嫌疑', sub: '正文为打印体，疑似网购代写',
   ask: [['C', '这作业怎么是打印的？'], ['E', '……我练字练得太工整了。', { expr: 'nervous', sweat: true }]] };
-const COPY_ISSUE = { law: 'real', pairs: [['hw.页数', 'hw.姓名'], ['hw.页数', 'rule.real'], ['hw.姓名', 'rule.real']], title: '抄袭实锤', sub: '错题与上一位交的一模一样（含错别字）',
+const COPY_ISSUE = { law: 'real', pairs: [['hw.答案'], ['hw.答案', 'rule.real']], title: '抄袭实锤', sub: '错题与上一位交的一模一样（含错别字）',
   ask: [['C', '连错别字都一样？'], ['E', '……英雄所见略同？', { expr: 'grin', sweat: true }]] };
 const OLD_ISSUE = (d) => ({ law: 'real', pairs: [['hw.日期'], ['hw.日期', 'rule.real']], title: '旧作业充数', sub: `日期：${d}，上周的`,
   ask: [['C', '这是上周的作业。'], ['E', '……你不记得了吗？补交也算交吧？', { expr: 'nervous', sweat: true }]] });
-const SIGN_ISSUE = { law: 'real', pairs: [['hw.签字', 'rule.real'], ['st.姓名', 'hw.签字']], title: '签字可疑', sub: '家长签字笔迹稚嫩，像自己签的',
+const SIGN_ISSUE = { law: 'real', pairs: [['hw.签字'], ['hw.姓名', 'hw.签字'], ['hw.签字', 'rule.real']], title: '签字可疑', sub: '家长签字笔迹稚嫩，像自己签的',
   ask: [['C', '这是你爸签的？'], ['E', '……我爸写字就这样！', { expr: 'nervous', sweat: true }]] };
 const TELL = (say, sub, ask) => ({ law: 'recite', say, title: '可疑：话里有破绽', sub, ask });
 const RANDOM_TELLS = [
@@ -710,7 +723,9 @@ function copyStudent() {
     art, photoI: art,
     voice: 120 + rint(-20, 40), photoSeed: rint(1, 9999),
     hello: '老师，我和同桌错得一样很正常吧？', thanks: '……',
-    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no }) }],
+    // COPY_EX 是「雷同卷指纹」：8×7=54、9×6=56 这两处错法和上一位一字不差。
+    // 之前这里走的是默认随机错题，等于「抄袭实锤」这个矛盾在作业本上根本没有证据。
+    docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, ex: COPY_EX }) }],
     primary: 'hw', ok: ['deny'], reason: '作业抄袭雷同',
     intro: [['E', '老师，先说好，错题一样不算抄吧？']],
     issues: [COPY_ISSUE],
@@ -874,7 +889,10 @@ function aiStudent() {
     docs: [{ key: 'st', doc: makeStudentID(name, no) }, { key: 'hw', doc: makeHomework({ name, no, printed: true, ex: makeEx('math', 'hard', 0) }) }],
     primary: 'hw', ok: ['deny'], reason: 'AI 代写（打印体 · 非本人完成）',
     intro: [['E', pick(['老师，我用 AI 写的作业，效率很高。', '老师，这是 AI 帮我涌现的作业。', 'AI 写的，我检查过，全对。'])]],
-    issues: [{ pairs: [['hw.科目', 'rule.real'], ['hw.页数', 'rule.real']], title: 'AI 代写', sub: '打印体 · 声称 AI 生成',
+    // law:'real' —— 与打印体同属「作业须真实」；缺了这个字段会导致查获 AI 代写后
+    // 既不能立班规，也不计入手法统计（学生学不会、名声不涨）
+    issues: [{ law: 'real', pairs: [['hw.科目', 'hw.日期'], ['hw.答案'],
+      ['hw.签字', 'rule.real'], ['hw.答案', 'rule.real']], title: 'AI 代写', sub: '打印体 · 声称 AI 生成',
       ask: [['C', 'AI 写的算你写的吗？'], ['E', 'prompt 是我写的啊！想法是我的！', { expr: 'grin', sweat: true }]] }],
     react: { deny: [['E', '那让 AI 来月考吧……', { expr: 'sad' }]] },
   };
@@ -1473,7 +1491,8 @@ function leave(e) {
   }
   // 漏批也按「题」计：判错一题算一处，空着不批同样算一处
   // （原来整本空着只 +1 份，比全判错还轻，玩家可以靠「干脆不批」规避惩罚）
-  if (hwd && hwd.doc.ex && hwd.doc.marks) {
+  // 但只在「放行」时计：作业本都被打回去了，本来就不该再要求你批。
+  if (hwd && hwd.doc.ex && hwd.doc.marks && dec === 'approve') {
     const blanks = hwd.doc.marks.filter((m) => m === null).length;
     if (blanks > 0) {
       const beforeOV = (S.gradeWrong || 0) + (S.ungraded || 0);
@@ -1637,7 +1656,9 @@ function fieldAt(x, y) {
   }
   for (const d of [...B.docs].reverse()) {
     if (!d.big || d.owner === 'cite' || !inBox(x, y, docBox(d)) || !inBox(x, y, DESK)) continue;
-    if (d.key === 'hw' && d.doc.flipEx) return { d, key: null };
+    // 翻到习题页时整页作为一个可比对栏位「答案」，否则抄袭/AI 代写这类
+    // 只体现在作答内容上的矛盾，玩家在比对模式下根本点不出来。
+    if (d.key === 'hw' && d.doc.flipEx) return { d, key: 'hw.答案', box: () => [d.x + 6, d.y + 17, d.x + d.doc.w - 7, d.y + d.doc.h - 20] };
     let best = null;
     for (const [name, f] of Object.entries(d.doc.fields)) {
       const b = [d.x + f[0] - 1, d.y + f[1] - 1, d.x + f[2] + 1, d.y + f[3] + 1];
