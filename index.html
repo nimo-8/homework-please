@@ -1442,8 +1442,8 @@ function leave(e) {
     else if (beforeOV < 7 && afterOV >= 7) later(0.6, () => { if (B) { flashMsg('教导主任预警 II：好几份没批就交了，绩效扣 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
     if (beforeOV < 10 && afterOV >= 10) later(0.7, () => { if (B) { flashMsg('教导主任预警 III：最后通牒——不批作业就等着调岗'); B.shake = now; SFX.play('discrepancy'); } });
   }
-  // B：没查出来就放走的蒙混，会被学生学去（下次更常见）
-  if (e && e.spec && e.spec.issues) {
+  // B：只有「放行」且没被识破的蒙混，才会被学生学去（被拒绝的不算——他知道这招失效了）
+  if (dec === 'approve' && e && e.spec && e.spec.issues) {
     for (const is of e.spec.issues) {
       if (is.law && !e.found.has(is)) ecoBump(is.law, 'skipped');
     }
@@ -2469,11 +2469,16 @@ function prologueClick() {
   }
 }
 function drawTitle(t) {
-  rect(0, 0, W - 1, H - 1, K.INK);
-  // 背景网格
-  G.fillStyle = 'rgba(204,112,80,0.08)';
+  // 黑板风：深板绿底 + 粉笔网格，比原来的深褐更贴「教室」这个场景
+  rect(0, 0, W - 1, H - 1, 'rgb(26,35,31)');
+  rect(0, 0, W - 1, 3, 'rgba(232,238,226,0.10)');
+  rect(0, H - 4, W - 1, H - 1, 'rgba(232,238,226,0.10)');
+  G.fillStyle = 'rgba(230,236,224,0.045)';
   for (let x = 0; x < W; x += 32) G.fillRect(x, 0, 1, H);
   for (let y = 0; y < H; y += 32) G.fillRect(0, y, W, 1);
+  // 板擦痕（几道淡色斜纹，像擦过的黑板）
+  G.fillStyle = 'rgba(240,244,236,0.022)';
+  G.fillRect(0, 88, W, 26); G.fillRect(0, 214, W, 18);
   // —— 右侧：检查站窗口预览（AI 学生立绘当主角） ——
   const wx0 = 396, wy0 = 96, wx1 = 620, wy1 = 300;
   rect(wx0 - 6, wy0 - 6, wx1 + 6, wy1 + 6, K.COUNTER);
@@ -2499,24 +2504,21 @@ function drawTitle(t) {
   }
   // —— 左侧：标题块 ——
   bigTitleLeft(t);
-  txt(30, 148, '请出示你的作业', 20, K.PAPER);
-  txt(46, 184, 'Papers, Please 式检查游戏 · 班主任版', 10, K.GREY);
-  txt(46, 206, '疑似 AI 涌现现场 · 一个网址进去，一个游戏出来', 10, K.GREY_D);
+  txt(30, 152, '请出示你的作业', 20, 'rgb(232,236,224)');
   // 合格章（斜盖）
-  drawTitleStamp(150, 252, t);
+  drawTitleStamp(150, 214, t);
   const bl = Math.sin(t * 3) > -0.2;
-  if (bl) txt(96, 296, '- 点击开始 -', 13, K.CLAUDE_L, 'ma');
+  if (bl) txt(96, 262, '- 点击开始 -', 13, K.CLAUDE_L, 'ma');
   const hasSave = hasAnySave();
-  txt(96, 326, hasSave ? '点进来选存档 / 开新局' : '周一早晨，收作业', 10, K.GREY_D, 'ma');
+  txt(96, 290, hasSave ? '点进来选存档 / 开新局' : '周一早晨，收作业', 10, 'rgba(214,220,206,0.55)', 'ma');
   // 7 天 × 先例 × 道具 三徽章
   const badges = ['7 天关卡', '按例定规', '批改道具'];
   badges.forEach((b2, i) => {
     const bx = 396 + i * 78, by = 318;
-    rect(bx, by, bx + 70, by + 24, 'rgba(204,112,80,0.12)');
-    outline(bx, by, bx + 70, by + 24, K.GREY_D);
+    rect(bx, by, bx + 70, by + 24, 'rgba(204,112,80,0.10)');
+    outline(bx, by, bx + 70, by + 24, 'rgba(226,232,218,0.22)');
     txt(bx + 35, by + 8, b2, 9, K.CLAUDE_L, 'ma');
   });
-  txt(320, 352, '玩法致敬《IP, PLEASE》与《Papers, Please》 · 疑似 AI 涌现现场', 8, 'rgb(90,84,80)', 'ma');
 }
 const TITLE_LINES = ['老师，我的作业。', '老师，交作业。', '这作业是涌现出来的。', '我开了魔法的。', '前面那位的情况，我听说了。'];
 function pick2(i) { return TITLE_LINES[i % TITLE_LINES.length]; }
