@@ -11,13 +11,32 @@
   body { display:flex; align-items:center; justify-content:center; font-family:system-ui,sans-serif; }
   canvas { display:block; image-rendering:pixelated; image-rendering:crisp-edges; touch-action:none; user-select:none; -webkit-user-select:none; }
   @media (pointer:fine){ canvas{ cursor:none; } }
-  .ui { position:fixed; top:6px; right:8px; display:flex; gap:6px; z-index:2; }
-  .ui button { font:12px system-ui,sans-serif; color:#968f87; background:rgba(22,19,19,.7); border:1px solid #4a4440; border-radius:3px; padding:3px 8px; cursor:pointer; }
+  /* 移到左侧边缘竖直排列：横屏时正好落在黑边里，不会压住游戏内的「主任关注」 */
+  .ui { position:fixed; left:3px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:6px; z-index:2; }
+  .ui button { font:11px system-ui,sans-serif; color:#968f87; background:rgba(22,19,19,.72); border:1px solid #4a4440; border-radius:3px; padding:4px 6px; cursor:pointer; writing-mode:horizontal-tb; }
   .ui button:hover { color:#e4dfd4; }
+  /* 竖屏提示：手机竖拿时画面会被压成一条窄带，必须横屏才有正常可读性 */
+  #rotate { position:fixed; inset:0; display:none; flex-direction:column; align-items:center;
+    justify-content:center; gap:14px; background:#161313; color:#e4dfd4; z-index:9;
+    font:15px/1.7 system-ui,sans-serif; text-align:center; padding:24px; }
+  #rotate .ico { font-size:44px; animation:rot 1.8s ease-in-out infinite; }
+  #rotate small { color:#968f87; font-size:12px; }
+  @keyframes rot { 0%,45%{transform:rotate(0)} 55%,100%{transform:rotate(90deg)} }
+  @media (orientation:portrait) and (max-aspect-ratio: 1/1) { #rotate { display:flex; } }
+  /* 兜底：外部浏览器锁竖屏时，用户可强制进入（画面小但能玩） */
+  body.forced #rotate { display:none !important; }
+  #rotate .go { margin-top:4px; font:13px system-ui,sans-serif; color:#e4dfd4; background:transparent;
+    border:1px solid #6b625b; border-radius:4px; padding:8px 16px; cursor:pointer; }
 </style>
 </head>
 <body>
 <canvas id="game" width="640" height="360"></canvas>
+<div id="rotate">
+  <div class="ico">📱</div>
+  <div><b>请横屏游玩</b><br>把手机横过来，画面才能铺满、字才看得清</div>
+  <button class="go" type="button" id="forcePlay">仍然竖屏进入</button>
+  <small>横屏后如仍有黑边，点右上角「全屏」</small>
+</div>
 <div class="ui">
   <button id="mute" type="button">声音：开</button>
   <button id="full" type="button">全屏</button>
@@ -48,6 +67,10 @@ const seg = (t, a, b) => (b > a ? clampU((t - a) / (b - a)) : +(t >= b));
 const easeOut = (u) => 1 - (1 - u) ** 3;
 const lerp = (a, b, u) => a + (b - a) * u;
 const inBox = (x, y, b) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3];
+// 触屏热区放大：手机上 640×360 只显示约 390px 宽，32px 的按钮实际只有 19px，手指点不中。
+// px=水平扩、py=垂直扩（绘制尺寸不变，只放宽判定）
+const inBoxG = (x, y, b, px = 0, py = px) =>
+  x >= b[0] - px && x <= b[2] + px && y >= b[1] - py && y <= b[3] + py;
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const rint = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
 const shuffle = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = rint(0, i); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
@@ -1392,7 +1415,7 @@ function onUp(ev) {
 }
 function boothInput(x, y) {
   if (B.ending) return;
-  if (B.hint > 0 && inBox(x, y, HINT_BTN)) {
+  if (B.hint > 0 && inBoxG(x, y, HINT_BTN, 7)) {
     if (!B.ent || !B.ent.handed) { flashMsg('先叫一位学生进来，才能用提示'); return; }
     B.hint--;
     const unfound = B.ent.spec.issues.filter((is) => !B.ent.found.has(is));
@@ -1400,7 +1423,7 @@ function boothInput(x, y) {
     else B.insp.banner = { title: '同事：这位真没问题', sub: '（或者问题你已经自己找到了）', bad: false };
     return;
   }
-  if (S.day >= 3 && B.detect.uses > 0 && inBox(x, y, DETECT_BTN)) { B.detect.active = !B.detect.active; SFX.play('select'); return; }
+  if (S.day >= 3 && B.detect.uses > 0 && inBoxG(x, y, DETECT_BTN, 7)) { B.detect.active = !B.detect.active; SFX.play('select'); return; }
   if (B.detect.active) {
     let hitHw = null;
     for (const d of [...B.docs].reverse()) {
@@ -1414,8 +1437,8 @@ function boothInput(x, y) {
     else I0(); function I0() { B.insp.banner = { title: 'AI 检测：阴性', sub: '这份作业是人写的', bad: false }; }
     return;
   }
-  if (S.day >= 4 && inBox(x, y, DRAWER_BTN)) { B.drawer.on = !B.drawer.on; SFX.play('whoosh'); return; }
-  if (inBox(x, y, INSPECT_BTN)) return setInspect(!B.insp.on);
+  if (S.day >= 4 && inBoxG(x, y, DRAWER_BTN, 7)) { B.drawer.on = !B.drawer.on; SFX.play('whoosh'); return; }
+  if (inBoxG(x, y, INSPECT_BTN, 7)) return setInspect(!B.insp.on);
   if (B.insp.on) return inspectClick(x, y);
   const tx = trayX();
   if (inBox(x, y, [tx - 14, 204, tx + 4, 244])) { B.tray.open = !B.tray.open; B.tray.t = now; SFX.play('paper', 0.5); return; }
@@ -1423,15 +1446,15 @@ function boothInput(x, y) {
     for (const kind of ['approve', 'deny']) if (inBox(x, y, stampBtnBox(kind, tx))) return stamp(kind);
   }
   if (inBox(x, y, [tx, TRAY_Y0, W - 1, TRAY_Y1])) return;
-  if (inBox(x, y, INSPECT_BTN)) return setInspect(true);
+  if (inBoxG(x, y, INSPECT_BTN, 7)) return setInspect(true);
   if (inBox(x, y, BOOK_BOX) && B.ruleInst) {
     if (!B.ruleInst.big) { B.ruleInst.big = true; B.ruleInst.x = 300; B.ruleInst.y = 232; B.ruleOpened = true; }
     else { B.ruleInst.big = false; B.ruleInst.x = 502; B.ruleInst.y = 316; }
     SFX.play('paper'); return;
   }
-  if (inBox(x, y, SPEAKER)) return callNext();
-  if (S.day >= 2 && inBox(x, y, DETAIN_BTN)) return detain();
-  if (S.day >= 2 && inBox(x, y, QUIZ_BTN)) return quiz();
+  if (inBoxG(x, y, SPEAKER, 14)) return callNext();
+  if (S.day >= 2 && inBoxG(x, y, DETAIN_BTN, 3, 10)) return detain();
+  if (S.day >= 2 && inBoxG(x, y, QUIZ_BTN, 3, 10)) return quiz();
   for (const d of [...B.docs].reverse()) {
     const box = boxOf(d);
     if (d.big && !inBox(x, y, DESK)) continue;
@@ -1479,7 +1502,9 @@ function dragEnd(x, y) {
 function sceneClick(x, y) {
   if (scene === 'boot') { go('title'); return; }
   if (scene === 'title') { titleClick(x, y); return; }
-  if (scene === 'news' && st() > 0.6) { go('booth'); return; }
+  // 日卡/早报是转场页：原来只能干等（1.9s / 0.6s），点了没反应像卡死 → 允许点击提前跳过
+  if (scene === 'daycard' && st() > 0.25) { go('news'); return; }
+  if (scene === 'news' && st() > 0.25) { go('booth'); return; }
   if (scene === 'shop') { shopClick(x, y); return; }
   if (scene === 'summary') {
     if (st() > 0.8) {
@@ -2144,6 +2169,9 @@ function boot() {
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
   canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
+  // 竖屏兜底：无法旋转屏幕时允许强制进入
+  const fpBtn = document.getElementById('forcePlay');
+  if (fpBtn) fpBtn.addEventListener('click', () => { document.body.classList.add('forced'); fit(); });
   window.addEventListener('keydown', (e) => { if (e.key === 'm' || e.key === 'M') toggleMute(); });
   loadGame();
   sceneT0 = performance.now() / 1000;
