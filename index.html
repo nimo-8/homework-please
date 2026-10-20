@@ -1469,22 +1469,28 @@ function leave(e) {
       if (before < 4 && S.gradeWrong >= 4) later(0.5, () => { if (B) { flashMsg('教导主任预警 I：批改出错了，主任记了一笔'); SFX.play('discrepancy'); } });
       if (before < 7 && S.gradeWrong >= 7) later(0.6, () => { if (B) { flashMsg('教导主任预警 II：批改错太多，绩效扣 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
       if (before < 10 && S.gradeWrong >= 10) later(0.7, () => { if (B) { flashMsg('教导主任预警 III：最后通牒——再判错就调岗'); B.shake = now; SFX.play('discrepancy'); } });
-      if ((S.gradeWrong || 0) + (S.ungraded || 0) >= 13 && !S.fired) {
-        S.fired = true; saveGame();
-        later(2.2, () => { if (B) { B.ending = true; go('over'); } });
-      }
     }
   }
-  if (hwd && hwd.doc.ex && hwd.doc.marks && !hwd.doc.marks.some((m) => m !== null)) {
-    const beforeOV = (S.gradeWrong || 0) + (S.ungraded || 0);
-    S.ungraded = (S.ungraded || 0) + 1;
-    B.ungradedDay = (B.ungradedDay || 0) + 1;
-    haptic(16);
-    floater('没批就交了', 320, 206, '230,170,90');
-    const afterOV = (S.gradeWrong || 0) + (S.ungraded || 0);
-    if (beforeOV < 4 && afterOV >= 4) later(0.5, () => { if (B) { flashMsg('教导主任预警 I：作业没批就盖章，主任记了一笔'); SFX.play('discrepancy'); } });
-    else if (beforeOV < 7 && afterOV >= 7) later(0.6, () => { if (B) { flashMsg('教导主任预警 II：好几份没批就交了，绩效扣 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
-    if (beforeOV < 10 && afterOV >= 10) later(0.7, () => { if (B) { flashMsg('教导主任预警 III：最后通牒——不批作业就等着调岗'); B.shake = now; SFX.play('discrepancy'); } });
+  // 漏批也按「题」计：判错一题算一处，空着不批同样算一处
+  // （原来整本空着只 +1 份，比全判错还轻，玩家可以靠「干脆不批」规避惩罚）
+  if (hwd && hwd.doc.ex && hwd.doc.marks) {
+    const blanks = hwd.doc.marks.filter((m) => m === null).length;
+    if (blanks > 0) {
+      const beforeOV = (S.gradeWrong || 0) + (S.ungraded || 0);
+      S.ungraded = (S.ungraded || 0) + blanks;
+      B.ungradedDay = (B.ungradedDay || 0) + blanks;
+      haptic(16);
+      floater(blanks >= hwd.doc.marks.length ? '这本一道都没批' : `漏批 ${blanks} 题`, 320, 206, '230,170,90');
+      const afterOV = (S.gradeWrong || 0) + (S.ungraded || 0);
+      if (beforeOV < 4 && afterOV >= 4) later(0.5, () => { if (B) { flashMsg('教导主任预警 I：作业没批就盖章，主任记了一笔'); SFX.play('discrepancy'); } });
+      if (beforeOV < 7 && afterOV >= 7) later(0.65, () => { if (B) { flashMsg('教导主任预警 II：漏批太多，绩效扣 2 分'); B.pay = Math.max(0, B.pay - 2); SFX.play('stamp_no'); } });
+      if (beforeOV < 10 && afterOV >= 10) later(0.8, () => { if (B) { flashMsg('教导主任预警 III：最后通牒——不批作业就等着调岗'); B.shake = now; SFX.play('discrepancy'); } });
+    }
+  }
+  // 调岗判定放在两处累计之后：不管靠判错还是靠漏批堆到 13，都会触发
+  if ((S.gradeWrong || 0) + (S.ungraded || 0) >= 13 && !S.fired) {
+    S.fired = true; saveGame();
+    later(2.2, () => { if (B) { B.ending = true; go('over'); } });
   }
   // B：只有「放行」且没被识破的蒙混，才会被学生学去（被拒绝的不算——他知道这招失效了）
   if (dec === 'approve' && e && e.spec && e.spec.issues) {
@@ -2203,7 +2209,7 @@ function drawBoothBg() {
   const gcol = ovv >= 8 ? K.RED : ovv >= 4 ? K.ORANGE : K.GREEN;
   txt(634, 32, `主任关注 ${ovv}/13`, 8, gcol, 'ra');
   // 说明：这个数字是什么、上限在哪（原来只有数字没有解释）
-  txt(634, 42, '批改错 + 未批作业累计 · 满 13 次调岗', 8, 'rgb(152,144,134)', 'ra');
+  txt(634, 42, '判错 + 漏批按题累计 · 满 13 处调岗', 8, 'rgb(152,144,134)', 'ra');
 }
 function drawBtn(b, label, hot) {
   rect(b[0], b[1], b[2], b[3], hot ? K.CLAUDE : 'rgb(52,48,44)');
@@ -2673,7 +2679,7 @@ function dailyComment() {
   if (miss === 0 && gw === 0) return ['判断都对，只是作业没批完。', false];
   if (miss >= 3) return ['放走的人太多，走廊里都听见风声了。', true];
   if (gw >= 3) return ['批改错得有点多，主任正盯着你。', true];
-  if (un >= 2) return ['好几份没批就交了，这事说不过去。', true];
+  if (un >= 4) return ['漏批的题堆起来了，这事说不过去。', true];
   if (miss === 0) return ['判断全对，稳。', false];
   return ['还行，但别指望明天还这么顺。', false];
 }
@@ -2687,7 +2693,7 @@ function drawSummary(t) {
     ['批改正确', `${B.correct} 份`],
     ['批改全对', `${B.gradeOk || 0} 本`],
     ['批改错误', `${B.gradeWrongDay || 0} 处`],
-    ['未批作业', `${B.ungradedDay || 0} 份`],
+    ['漏批题目', `${B.ungradedDay || 0} 处`],
     ['班规进度', `${Object.keys(S.laws || {}).length}/7 条`],
     ['护身符', `${S.charm || 0} 个`],
     ['误判单', `${B.total - B.correct} 张`],
@@ -2779,7 +2785,7 @@ function drawEnd(t) {
 function drawOver(t) {
   rect(0, 0, W - 1, H - 1, K.INK);
   txt(320, 120, '你被调去管宿舍了', 22, K.RED, 'ma');
-  txt(320, 148, `批改错误 ${S.gradeWrong} 处 · 未批作业 ${S.ungraded || 0} 份`, 12, K.PAPER, 'ma');
+  txt(320, 148, `批改错误 ${S.gradeWrong} 处 · 漏批 ${S.ungraded || 0} 处`, 12, K.PAPER, 'ma');
   txt(320, 172, '教导主任：你的红笔已经不适合再碰作业本了。', 10, K.GREY, 'ma');
   const r = restartBtn();
   rect(...r, 'rgb(52,48,44)'); outline(...r, K.OUTLINE);
