@@ -977,6 +977,7 @@ let canvasEl, F, now = 0;
 const S = { day: 1, pay: 0, cites: 0, correct: 0, total: 0, tut: {}, laws: {}, inv: {}, charm: 0, shopOffers: null, bought: [], gradeWrong: 0, ungraded: 0, fired: false };
 let B = null;
 const ptr = { x: 320, y: 180, mouse: false, down: false };
+let payView = null;   // 绩效数字的显示值（平滑滚动，不直接跳数）
 let drag = null;
 let scene = 'boot', sceneT0 = 0;
 const st = () => now - sceneT0;
@@ -1218,7 +1219,13 @@ function leave(e) {
   const ok = e.spec.ok;
   const good = dec && ok.includes(dec);
   B.total++; S.total++;
-  if (good) { B.correct++; S.correct++; SFX.play('coin'); haptic(22); floater('✓ 批对了', 320, 206, '170,220,150'); flashMsg(pick(['批完了。', '下一位。', '合格。'])); }
+  if (good) {
+    B.correct++; S.correct++;
+    SFX.play('coin'); haptic(22);
+    if (e) { e.expr = 'smile'; e.sweatT = null; }
+    floater('✓ 批对了', 320, 206, '170,220,150');
+    flashMsg(pick(['批完了。', '下一位。', '合格。']));
+  }
   else if (dec === 'approve') { S.wrongApprove = (S.wrongApprove || 0) + 1; }
   else if (dec === 'deny' || dec === 'detain') { S.wrongDeny = (S.wrongDeny || 0) + 1; }
   else if ((S.charm || 0) > 0) {
@@ -1233,6 +1240,13 @@ function leave(e) {
     haptic([55, 45, 55]);
     floater('误判 -2', 320, 206, '232,120,110');
     floater('-2 分', 604, 56, '232,120,110');
+    // 学生反应：变脸 + 把作业本一把拍到桌上
+    if (e) {
+      e.expr = 'angry'; e.sweatT = now;
+      const td = e.docs.find((d) => d.key === 'hw' && d.big);
+      if (td) td.toss = { t0: now + 0.12, x0: td.x, y0: td.y,
+        tx: Math.max(240, Math.min(520, td.x + 40)), ty: Math.max(160, Math.min(280, td.y + 80)) };
+    }
     const why = e.spec.reason || '违反规则';
     printCitation([`误判 / 漏检`, `理由：${why}`, `扣 2 分绩效，全校通报`]);
     SFX.play('stamp_no');
@@ -1841,7 +1855,12 @@ function drawBoothBg() {
   txt(560, 118, `${todayStr()} ${WEEKDAYS[S.day]}`, 8, K.GREY, 'ra');
   const TIPS = { 4: '涌现预警：有学生声称作业会自己长出来', 5: '涌现预警：代写团伙自称「涌现工作室」', 6: '涌现预警：补课教室查获「涌现型」作业本', 7: '涌现预警：月考前夜，涌现高发期' };
   if (S.day >= 4 && TIPS[S.day]) txt(634, 130, TIPS[S.day], 8, 'rgb(200,120,90)', 'ra');
-  txt(634, 16, `${B.pay} 分`, 12, K.ORANGE, 'ra');
+  // 绩效：显示平滑值，涨绿跌红，变化时数字轻微放大
+  const pv = payView === null ? B.pay : payView;
+  const dv = B.pay - pv;
+  const pcol = dv > 0.6 ? 'rgb(150,214,140)' : dv < -0.6 ? 'rgb(238,140,126)' : K.ORANGE;
+  const psz = Math.abs(dv) > 0.6 ? 13 : 12;
+  txt(634, 16, `${Math.round(pv)} 分`, psz, pcol, 'ra');
   const ovv = Math.min(13, (S.gradeWrong || 0) + (S.ungraded || 0));
   const gcol = ovv >= 8 ? K.RED : ovv >= 4 ? K.ORANGE : K.GREEN;
   txt(634, 32, `主任关注 ${ovv}/13`, 8, gcol, 'ra');
@@ -1901,6 +1920,16 @@ function drawInkMark(d) {
 }
 function drawDocs() {
   for (const d of B.docs) {
+    // 摔本子：判错时作业本被学生一把拍到桌上（抛物线 + 落地音效）
+    if (d.toss) {
+      const u = clampU((now - d.toss.t0) / 0.5);
+      if (u >= 1) { d.toss = null; if (!d.tossSfx) { d.tossSfx = true; SFX.play('paper', 0.6); } }
+      else {
+        const e2 = easeOut(u);
+        d.x = Math.round(lerp(d.toss.x0, d.toss.tx, e2));
+        d.y = Math.round(lerp(d.toss.y0, d.toss.ty, e2) - Math.sin(u * Math.PI) * 46);
+      }
+    }
     if (d.big) {
       d.doc.draw(d.x, d.y);
       drawInkMark(d);
@@ -2354,6 +2383,15 @@ function update() {
   if (scene === 'booth') {
     runTimers();
     guideStart();
+    // 绩效数字滚动：向真实值靠拢，落差过大（换局/读档）时直接吸附
+    if (B) {
+      if (payView === null || Math.abs(B.pay - payView) > 12) payView = B.pay;
+      else {
+        const dv = B.pay - payView;
+        if (Math.abs(dv) < 0.02) payView = B.pay;
+        else payView += dv * 0.24;
+      }
+    }
     const idle = !B.ent && !B.ending;
     if (idle && now > B.lastFinish + 2.2 && !GUIDE.on) flashMsg('按左下角喇叭叫下一位');
   }
