@@ -1027,7 +1027,7 @@ const GUIDE_STEPS = [
     sub: '矛盾成立会自动记一条班规——班规不是开局给你的，是你一条条查出来的',
     box: null, pad: 0 },
   { key: 'stamp', text: '⑥ 点右侧拉出印章栏盖章，再把作业本拖回给学生收下',
-    sub: '通过 = 放行，请家长 = 拒绝。盖错章扣分，漏网与铁腕都记进结局',
+    sub: '合格章 = 收下放行，重做章 = 打回叫家长。盖错会扣分，漏网和铁腕都记进结局',
     box: () => [W - 70, TRAY_Y0 - 14, W - 2, TRAY_Y1 + 16], pad: 8 },
 ];
 function mainDoc() {
@@ -1381,7 +1381,15 @@ function fieldAt(x, y) {
 function setInspect(on) {
   B.insp = { on, sel: [], banner: null };
   SFX.play(on ? 'select' : 'click');
-  if (on) { S.tut.inspect = true; guideDone('inspect'); }
+  if (on) {
+    S.tut.inspect = true;
+    guideDone('inspect');
+    // 首次进比对模式给一句操作说明（引导期间由引导条负责，不重复）
+    if (!GUIDE.on && !S.tut.inspectTip) {
+      S.tut.inspectTip = true;
+      later(0.15, () => flashMsg('点两处字段做比对；单处疑点直接点一下就行'));
+    }
+  }
 }
 function matchIssue(keys) {
   const e = B.ent;
@@ -1797,6 +1805,8 @@ function drawBoothBg() {
   const ovv = Math.min(13, (S.gradeWrong || 0) + (S.ungraded || 0));
   const gcol = ovv >= 8 ? K.RED : ovv >= 4 ? K.ORANGE : K.GREEN;
   txt(634, 32, `主任关注 ${ovv}/13`, 8, gcol, 'ra');
+  // 说明：这个数字是什么、上限在哪（原来只有数字没有解释）
+  txt(634, 42, '批改错 + 未批作业累计 · 满 13 次调岗', 8, 'rgb(152,144,134)', 'ra');
 }
 function drawBtn(b, label, hot) {
   rect(b[0], b[1], b[2], b[3], hot ? K.CLAUDE : 'rgb(52,48,44)');
@@ -1811,6 +1821,9 @@ function drawTray() {
   outline(tx - 12, 204, tx + 2, 244, K.OUTLINE);
   for (let i = 0; i < 3; i++) rect(tx - 8, 212 + i * 10, tx - 2, 213 + i * 10, 'rgb(40,36,34)');
   if (open) {
+    // 两个章分别干什么（原来只有「合格 / 重做」，玩家不知道后果）
+    txt(tx + 41, 179, '放行', 8, 'rgb(150,214,140)', 'ma');
+    txt(tx + 121, 179, '打回', 8, 'rgb(238,146,132)', 'ma');
     const [ax0, ay0, ax1, ay1] = stampBtnBox('approve', tx);
     rect(ax0, ay0, ax1, ay1, K.GREEN); outline(ax0, ay0, ax1, ay1, K.GREEN_D || 'rgb(56,88,48)');
     txt((ax0 + ax1) / 2, (ay0 + ay1) / 2 - 8, '合格', 10, K.WHITE, 'ma');
@@ -1900,8 +1913,10 @@ function drawFlash() {
   if (!B.flash) return;
   const u = seg(now, B.flash.t0, B.flash.t0 + 1.6);
   if (u >= 1) { B.flash = null; return; }
-  rect(230, 172, 588, 192, `rgba(22,19,19,${0.8 * (1 - u)})`);
-  txt(409, 176, B.flash.s, 10, `rgba(226,215,196,${1 - u})`, 'ma');
+  // 原来画在 y=172..192，正好压住作业本上的字段行（遮挡线索）。改为顶部通知条，
+  // 只盖住 Day/分数这类不重要信息，不再挡住作业本和对话。
+  rect(0, 0, W - 1, 21, `rgba(22,19,19,${0.88 * (1 - u)})`);
+  txt(320, 5, B.flash.s, 10, `rgba(232,222,202,${1 - u})`, 'ma');
 }
 function drawItemIcon(type, x, y) {
   if (aiReady('item_' + type)) { G.drawImage(AIIMG['item_' + type], x - 2, y - 2, 24, 18); return; }
